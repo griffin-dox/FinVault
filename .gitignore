@@ -8,3 +8,4 @@ vite.config.ts.*
 __pycache__/
 attached_assets/
 *.pyc
+.replit

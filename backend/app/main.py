@@ -2,11 +2,16 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from motor.motor_asyncio import AsyncIOMotorClient
+import redis.asyncio as redis
+from app.api import auth, transaction, dashboard, admin
 
-# Load environment variables from .env in backend directory
+# Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../.env'))
 
-# Get allowed origins from env, fallback to localhost dev
+# CORS configuration
 frontend_origins = os.environ.get("FRONTEND_ORIGINS")
 if frontend_origins:
     origins = [origin.strip() for origin in frontend_origins.split(",") if origin.strip()]
@@ -23,30 +28,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Database Connections ---
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from motor.motor_asyncio import AsyncIOMotorClient
-import redis.asyncio as redis
-
+# Database configuration
 POSTGRES_URI = os.environ.get("POSTGRES_URI")
 MONGODB_URI = os.environ.get("MONGODB_URI")
 REDIS_URL = os.environ.get("REDIS_URL")
 
-# PostgreSQL (SQLAlchemy async)
-engine = create_async_engine(POSTGRES_URI, echo=True, future=True)
-AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+# Initialize database connections
+if POSTGRES_URI:
+    engine = create_async_engine(POSTGRES_URI, echo=False, future=True)
+    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+else:
+    engine = None
+    AsyncSessionLocal = None
 
-# MongoDB (Motor async)
-mongo_client = AsyncIOMotorClient(MONGODB_URI)
-mongo_db = mongo_client.get_default_database()
+if MONGODB_URI:
+    mongo_client = AsyncIOMotorClient(MONGODB_URI)
+    mongo_db = mongo_client.get_default_database()
+else:
+    mongo_client = None
+    mongo_db = None
 
-# Redis (async)
-redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+if REDIS_URL:
+    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
+else:
+    redis_client = None
+
+# Dependency injection
+async def get_db():
+    if AsyncSessionLocal:
+        async with AsyncSessionLocal() as session:
+            yield session
+    else:
+        yield None
 
 @app.get("/")
 def root():
-    return {"message": "FinVault API is running."}
+    return {"message": "FinVault API is running.", "status": "healthy"}
 
 @app.get("/favicon.ico")
 def favicon():
@@ -55,11 +72,14 @@ def favicon():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "postgres": "connected" if engine else "not configured",
+        "mongodb": "connected" if mongo_client else "not configured",
+        "redis": "connected" if redis_client else "not configured"
+    }
 
-# Routers will be included here (e.g., from .api import register_router, etc.)
-from app.api import auth, transaction, dashboard, admin
-
+# Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(transaction.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")

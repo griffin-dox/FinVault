@@ -1,0 +1,34 @@
+services:
+  # Backend API Service
+  - type: web
+    name: finvault-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: cd backend && gunicorn app.main:app -w 4 -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
+    envVars:
+      - key: POSTGRES_URI
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: EMAIL_SENDER
+        sync: false
+      - key: EMAIL_PASSWORD
+        sync: false
+      - key: FRONTEND_ORIGINS
+        value: https://finvault-frontend.onrender.com
+
+  # Frontend Web Service
+  - type: web
+    name: finvault-frontend
+    env: static
+    plan: free
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/dist/public
+    envVars:
+      - key: VITE_API_URL
+        value: https://finvault-backend.onrender.com 
