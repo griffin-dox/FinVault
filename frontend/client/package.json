@@ -1,6 +1,0 @@
-{
-  "scripts": {
-    "lint": "eslint src --ext .ts,.tsx",
-    "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,css,json,md}\""
-  }
-} 
