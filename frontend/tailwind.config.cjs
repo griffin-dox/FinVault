@@ -1,16 +1,36 @@
-import type { Config } from "tailwindcss";
-import tailwindcssAnimate from "tailwindcss-animate";
-import typography from "@tailwindcss/typography";
+const tailwindcssAnimate = require('tailwindcss-animate');
+const typography = require('@tailwindcss/typography');
 
-export default {
+/** @type {import('tailwindcss').Config} */
+module.exports = {
   darkMode: ["class"],
   content: [
-    "./index.html",
-    "./src/**/*.{js,jsx,ts,tsx}",
-    "../shared/**/*.{ts,tsx,js,jsx}"
+    "./client/index.html",
+    "./client/src/**/*.{js,jsx,ts,tsx}",
+    "./shared/**/*.{ts,tsx,js,jsx}"
   ],
   theme: {
     extend: {
+      backgroundColor: {
+        background: "var(--background)",
+        card: "var(--card)",
+        popover: "var(--popover)",
+        primary: "var(--primary)",
+        secondary: "var(--secondary)",
+        muted: "var(--muted)",
+        accent: "var(--accent)",
+        destructive: "var(--destructive)",
+      },
+      textColor: {
+        foreground: "var(--foreground)",
+        "card-foreground": "var(--card-foreground)",
+        "popover-foreground": "var(--popover-foreground)",
+        "primary-foreground": "var(--primary-foreground)",
+        "secondary-foreground": "var(--secondary-foreground)",
+        "muted-foreground": "var(--muted-foreground)",
+        "accent-foreground": "var(--accent-foreground)",
+        "destructive-foreground": "var(--destructive-foreground)",
+      },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
@@ -93,4 +113,4 @@ export default {
     },
   },
   plugins: [tailwindcssAnimate, typography],
-} satisfies Config; 
+}; 
