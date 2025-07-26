@@ -1,0 +1,1328 @@
+openapi: 3.0.3
+info:
+  title: SecureBank API
+  description: |
+    Comprehensive API for SecureBank passwordless banking application with advanced behavioral profiling and fraud detection.
+    
+    ## Features
+    - Passwordless authentication with behavioral profiling
+    - Real-time risk assessment and fraud detection
+    - Comprehensive transaction management
+    - Advanced behavioral analytics
+    - Admin controls and monitoring
+    
+    ## Authentication
+    The API uses JWT tokens for authentication. Include the token in the Authorization header:
+    ```
+    Authorization: Bearer <your-jwt-token>
+    ```
+  version: 1.0.0
+  contact:
+    name: SecureBank API Support
+    email: api-support@securebank.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8000/api
+    description: Development server
+  - url: https://api.securebank.com/api
+    description: Production server
+
+security:
+  - BearerAuth: []
+
+paths:
+  # Authentication Endpoints
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: Register new user
+      description: Create a new user account with email verification
+      operationId: registerUser
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+            example:
+              name: "John Doe"
+              email: "john.doe@example.com"
+              phone: "+1234567890"
+              country: "US"
+              agreeToTerms: true
+      responses:
+        '201':
+          description: User registered successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/UserExistsError'
+
+  /auth/verify-email:
+    post:
+      tags:
+        - Authentication
+      summary: Verify email address
+      description: Verify user email with magic link token
+      operationId: verifyEmail
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                token:
+                  type: string
+                  description: JWT token from verification email
+              required:
+                - token
+      responses:
+        '200':
+          description: Email verified successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  next_step:
+                    type: string
+        '400':
+          $ref: '#/components/responses/InvalidToken'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Initiate passwordless login
+      description: Start login process with email
+      operationId: initiateLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Login challenge initiated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginChallengeResponse'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+
+  /auth/behavioral-login:
+    post:
+      tags:
+        - Authentication
+      summary: Complete behavioral login
+      description: Complete login with behavioral analysis data
+      operationId: completeBehavioralLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BehavioralLoginRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehavioralLoginResponse'
+        '401':
+          $ref: '#/components/responses/AuthenticationFailed'
+
+  /auth/complete-onboarding:
+    post:
+      tags:
+        - Authentication
+      summary: Complete user onboarding
+      description: Finalize onboarding with comprehensive behavioral profile
+      operationId: completeOnboarding
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OnboardingRequest'
+      responses:
+        '200':
+          description: Onboarding completed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OnboardingResponse'
+
+  # User Management Endpoints
+  /users:
+    get:
+      tags:
+        - Users
+      summary: Get all users
+      description: Retrieve paginated list of users (admin only)
+      operationId: getUsers
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term for filtering users
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsersListResponse'
+
+  /users/{userId}:
+    get:
+      tags:
+        - Users
+      summary: Get user by ID
+      description: Retrieve specific user details
+      operationId: getUserById
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: User retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          $ref: '#/components/responses/UserNotFound'
+
+    put:
+      tags:
+        - Users
+      summary: Update user profile
+      description: Update user profile information
+      operationId: updateUser
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserRequest'
+      responses:
+        '200':
+          description: User updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  # Transaction Endpoints
+  /transactions:
+    get:
+      tags:
+        - Transactions
+      summary: Get transactions
+      description: Retrieve paginated list of transactions with filtering
+      operationId: getTransactions
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+          description: Filter by user ID (admin only)
+        - name: type
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionType'
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/TransactionStatus'
+        - name: date_from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: date_to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: search
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transactions retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionsListResponse'
+
+    post:
+      tags:
+        - Transactions
+      summary: Create transaction
+      description: Create new transaction with risk assessment
+      operationId: createTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransactionRequest'
+      responses:
+        '201':
+          description: Transaction created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  /transactions/{transactionId}:
+    get:
+      tags:
+        - Transactions
+      summary: Get transaction by ID
+      description: Retrieve specific transaction details
+      operationId: getTransactionById
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      responses:
+        '200':
+          description: Transaction retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDetailResponse'
+
+  # Fraud Detection Endpoints
+  /fraud-alerts:
+    get:
+      tags:
+        - Fraud Detection
+      summary: Get fraud alerts
+      description: Retrieve paginated list of fraud alerts
+      operationId: getFraudAlerts
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+        - name: severity
+          in: query
+          schema:
+            $ref: '#/components/schemas/AlertSeverity'
+        - name: resolved
+          in: query
+          schema:
+            type: boolean
+        - name: user_id
+          in: query
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Fraud alerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FraudAlertsListResponse'
+
+    post:
+      tags:
+        - Fraud Detection
+      summary: Create fraud alert
+      description: Create new fraud alert
+      operationId: createFraudAlert
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFraudAlertRequest'
+      responses:
+        '201':
+          description: Fraud alert created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FraudAlertResponse'
+
+  /fraud-alerts/{alertId}:
+    put:
+      tags:
+        - Fraud Detection
+      summary: Update fraud alert
+      description: Update fraud alert resolution status
+      operationId: updateFraudAlert
+      parameters:
+        - name: alertId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateFraudAlertRequest'
+      responses:
+        '200':
+          description: Fraud alert updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FraudAlertResponse'
+
+  # Behavioral Analysis Endpoints
+  /behavioral/analyze:
+    post:
+      tags:
+        - Behavioral Analysis
+      summary: Analyze behavioral data
+      description: Perform real-time behavioral analysis
+      operationId: analyzeBehavioralData
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BehavioralAnalysisRequest'
+      responses:
+        '200':
+          description: Behavioral analysis completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehavioralAnalysisResponse'
+
+  /behavioral/profile/{userId}:
+    get:
+      tags:
+        - Behavioral Analysis
+      summary: Get behavioral profile
+      description: Retrieve user's behavioral profile
+      operationId: getBehavioralProfile
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      responses:
+        '200':
+          description: Behavioral profile retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BehavioralProfileResponse'
+
+  # Admin Endpoints
+  /admin/users/{userId}:
+    put:
+      tags:
+        - Administration
+      summary: Update user admin settings
+      description: Update user administrative settings (admin only)
+      operationId: updateUserAdminSettings
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateUserAdminRequest'
+      responses:
+        '200':
+          description: User settings updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+
+  /admin/transactions/{transactionId}:
+    put:
+      tags:
+        - Administration
+      summary: Update transaction admin settings
+      description: Update transaction status (admin override)
+      operationId: updateTransactionAdminSettings
+      parameters:
+        - $ref: '#/components/parameters/TransactionId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTransactionAdminRequest'
+      responses:
+        '200':
+          description: Transaction updated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionResponse'
+
+  /admin/dashboard:
+    get:
+      tags:
+        - Administration
+      summary: Get admin dashboard data
+      description: Retrieve admin dashboard statistics and metrics
+      operationId: getAdminDashboard
+      responses:
+        '200':
+          description: Dashboard data retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminDashboardResponse'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: User ID
+
+    TransactionId:
+      name: transactionId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Transaction ID
+
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+      description: Page number for pagination
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+      description: Number of items per page
+
+  schemas:
+    # Enums
+    TransactionType:
+      type: string
+      enum: [transfer, deposit, withdrawal]
+
+    TransactionStatus:
+      type: string
+      enum: [completed, pending, blocked, cancelled]
+
+    RiskLevel:
+      type: string
+      enum: [low, medium, high]
+
+    AlertSeverity:
+      type: string
+      enum: [low, medium, high, critical]
+
+    AccountStatus:
+      type: string
+      enum: [active, suspended, blocked]
+
+    # Basic Models
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+        country:
+          type: string
+        is_verified:
+          type: boolean
+        risk_level:
+          $ref: '#/components/schemas/RiskLevel'
+        is_admin:
+          type: boolean
+        account_status:
+          $ref: '#/components/schemas/AccountStatus'
+        created_at:
+          type: string
+          format: date-time
+        last_login:
+          type: string
+          format: date-time
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          type: number
+          format: double
+        recipient:
+          type: string
+        description:
+          type: string
+        risk_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        created_at:
+          type: string
+          format: date-time
+        reference_number:
+          type: string
+
+    FraudAlert:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        transaction_id:
+          type: string
+          format: uuid
+        alert_type:
+          type: string
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        description:
+          type: string
+        is_resolved:
+          type: boolean
+        resolved_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    # Behavioral Data Models
+    TypingAnalysis:
+      type: object
+      properties:
+        wpm:
+          type: number
+          format: double
+        accuracy:
+          type: number
+          format: double
+        keystroke_timings:
+          type: array
+          items:
+            type: number
+        dwell_times:
+          type: array
+          items:
+            type: number
+        flight_times:
+          type: array
+          items:
+            type: number
+
+    MouseMovement:
+      type: object
+      properties:
+        total_distance:
+          type: number
+          format: double
+        avg_speed:
+          type: number
+          format: double
+        clicks:
+          type: integer
+        trajectory:
+          type: array
+          items:
+            type: object
+            properties:
+              x:
+                type: number
+              y:
+                type: number
+              timestamp:
+                type: number
+        acceleration_patterns:
+          type: array
+          items:
+            type: number
+
+    DeviceFingerprint:
+      type: object
+      properties:
+        browser:
+          type: string
+        os:
+          type: string
+        screen_resolution:
+          type: string
+        timezone:
+          type: string
+        language:
+          type: string
+        user_agent:
+          type: string
+        canvas_fingerprint:
+          type: string
+        webgl_fingerprint:
+          type: string
+
+    TouchInteraction:
+      type: object
+      properties:
+        touch_points:
+          type: integer
+        pressure:
+          type: array
+          items:
+            type: number
+        gestures:
+          type: array
+          items:
+            type: string
+
+    ScrollBehavior:
+      type: object
+      properties:
+        total_scroll:
+          type: number
+        scroll_speed:
+          type: number
+        scroll_pattern:
+          type: array
+          items:
+            type: number
+
+    DragDrop:
+      type: object
+      properties:
+        attempts:
+          type: integer
+        accuracy:
+          type: number
+        completion_time:
+          type: number
+
+    LocationData:
+      type: object
+      properties:
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        accuracy:
+          type: number
+        timestamp:
+          type: number
+
+    # Request Models
+    RegisterRequest:
+      type: object
+      required:
+        - name
+        - email
+        - phone
+        - country
+        - agreeToTerms
+      properties:
+        name:
+          type: string
+          minLength: 2
+          maxLength: 100
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          minLength: 10
+          maxLength: 20
+        country:
+          type: string
+          minLength: 2
+          maxLength: 2
+        agreeToTerms:
+          type: boolean
+          enum: [true]
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+      properties:
+        email:
+          type: string
+          format: email
+
+    BehavioralLoginRequest:
+      type: object
+      required:
+        - challenge_id
+        - behavioral_data
+      properties:
+        challenge_id:
+          type: string
+          format: uuid
+        behavioral_data:
+          type: object
+          properties:
+            typing_analysis:
+              $ref: '#/components/schemas/TypingAnalysis'
+            mouse_movement:
+              $ref: '#/components/schemas/MouseMovement'
+            device_fingerprint:
+              $ref: '#/components/schemas/DeviceFingerprint'
+
+    OnboardingRequest:
+      type: object
+      required:
+        - email
+        - behavior_profile
+      properties:
+        email:
+          type: string
+          format: email
+        device_fingerprint:
+          $ref: '#/components/schemas/DeviceFingerprint'
+        behavior_profile:
+          type: object
+          properties:
+            typing_analysis:
+              $ref: '#/components/schemas/TypingAnalysis'
+            mouse_movement:
+              $ref: '#/components/schemas/MouseMovement'
+            touch_interaction:
+              $ref: '#/components/schemas/TouchInteraction'
+            scroll_behavior:
+              $ref: '#/components/schemas/ScrollBehavior'
+            drag_drop:
+              $ref: '#/components/schemas/DragDrop'
+            location_data:
+              $ref: '#/components/schemas/LocationData'
+
+    CreateTransactionRequest:
+      type: object
+      required:
+        - type
+        - amount
+      properties:
+        type:
+          $ref: '#/components/schemas/TransactionType'
+        amount:
+          type: number
+          format: double
+          minimum: 0.01
+        recipient:
+          type: string
+          format: email
+        description:
+          type: string
+        behavioral_context:
+          type: object
+
+    UpdateUserRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        phone:
+          type: string
+        country:
+          type: string
+
+    UpdateUserAdminRequest:
+      type: object
+      properties:
+        risk_level:
+          $ref: '#/components/schemas/RiskLevel'
+        is_admin:
+          type: boolean
+        account_status:
+          $ref: '#/components/schemas/AccountStatus'
+        notes:
+          type: string
+
+    UpdateTransactionAdminRequest:
+      type: object
+      required:
+        - status
+        - admin_notes
+        - override_reason
+      properties:
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        admin_notes:
+          type: string
+        override_reason:
+          type: string
+
+    CreateFraudAlertRequest:
+      type: object
+      required:
+        - user_id
+        - alert_type
+        - severity
+        - description
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        transaction_id:
+          type: string
+          format: uuid
+        alert_type:
+          type: string
+        severity:
+          $ref: '#/components/schemas/AlertSeverity'
+        description:
+          type: string
+        additional_data:
+          type: object
+
+    UpdateFraudAlertRequest:
+      type: object
+      properties:
+        is_resolved:
+          type: boolean
+        resolution_notes:
+          type: string
+        resolved_by:
+          type: string
+          format: uuid
+
+    BehavioralAnalysisRequest:
+      type: object
+      required:
+        - user_id
+        - session_data
+        - context
+      properties:
+        user_id:
+          type: string
+          format: uuid
+        session_data:
+          type: object
+          properties:
+            typing_patterns:
+              type: object
+            mouse_dynamics:
+              type: object
+            interaction_timing:
+              type: object
+            device_context:
+              type: object
+        context:
+          type: string
+          enum: [login, transaction, general]
+
+    # Response Models
+    RegisterResponse:
+      type: object
+      properties:
+        user:
+          type: object
+          properties:
+            id:
+              type: string
+              format: uuid
+            email:
+              type: string
+        message:
+          type: string
+
+    LoginChallengeResponse:
+      type: object
+      properties:
+        message:
+          type: string
+        challenge_id:
+          type: string
+          format: uuid
+        requires_behavioral_analysis:
+          type: boolean
+
+    BehavioralLoginResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+        user:
+          $ref: '#/components/schemas/User'
+        behavioral_match_score:
+          type: number
+          format: double
+        risk_assessment:
+          type: object
+          properties:
+            overall_score:
+              type: number
+            factors:
+              type: array
+              items:
+                type: string
+            recommendation:
+              type: string
+
+    OnboardingResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        behavioral_profile_id:
+          type: string
+          format: uuid
+        baseline_established:
+          type: boolean
+
+    UserResponse:
+      type: object
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+
+    UsersListResponse:
+      type: object
+      properties:
+        users:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+
+    TransactionResponse:
+      type: object
+      properties:
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+        risk_assessment:
+          type: object
+          properties:
+            score:
+              type: number
+            factors:
+              type: array
+              items:
+                type: string
+            behavioral_anomalies:
+              type: array
+              items:
+                type: string
+            recommendation:
+              type: string
+
+    TransactionDetailResponse:
+      type: object
+      properties:
+        transaction:
+          $ref: '#/components/schemas/Transaction'
+        risk_details:
+          type: object
+        behavioral_analysis:
+          type: object
+
+    TransactionsListResponse:
+      type: object
+      properties:
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        summary:
+          type: object
+          properties:
+            total_amount:
+              type: number
+            total_count:
+              type: integer
+            status_breakdown:
+              type: object
+
+    FraudAlertResponse:
+      type: object
+      properties:
+        alert:
+          $ref: '#/components/schemas/FraudAlert'
+
+    FraudAlertsListResponse:
+      type: object
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/FraudAlert'
+        pagination:
+          $ref: '#/components/schemas/Pagination'
+        summary:
+          type: object
+          properties:
+            total_unresolved:
+              type: integer
+            severity_breakdown:
+              type: object
+
+    BehavioralAnalysisResponse:
+      type: object
+      properties:
+        analysis_id:
+          type: string
+          format: uuid
+        behavioral_score:
+          type: number
+          format: double
+        anomaly_detection:
+          type: object
+          properties:
+            detected_anomalies:
+              type: array
+              items:
+                type: string
+            confidence_scores:
+              type: object
+            recommendations:
+              type: array
+              items:
+                type: string
+        risk_indicators:
+          type: array
+          items:
+            type: object
+
+    BehavioralProfileResponse:
+      type: object
+      properties:
+        profile:
+          type: object
+          properties:
+            baseline_metrics:
+              type: object
+            recent_patterns:
+              type: object
+            anomaly_history:
+              type: array
+              items:
+                type: object
+            learning_status:
+              type: string
+            confidence_level:
+              type: number
+
+    AdminDashboardResponse:
+      type: object
+      properties:
+        summary:
+          type: object
+          properties:
+            total_users:
+              type: integer
+            active_users_24h:
+              type: integer
+            total_transactions_today:
+              type: integer
+            fraud_alerts_unresolved:
+              type: integer
+            high_risk_users:
+              type: integer
+        recent_activity:
+          type: array
+          items:
+            type: object
+        risk_trends:
+          type: object
+        system_health:
+          type: object
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        total_pages:
+          type: integer
+
+    # Error Models
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+
+    ValidationError:
+      type: object
+      properties:
+        message:
+          type: string
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              field:
+                type: string
+              code:
+                type: string
+              message:
+                type: string
+
+  responses:
+    ValidationError:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+
+    UserExistsError:
+      description: User already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "User already exists"
+            code: "USER_EXISTS"
+
+    UserNotFound:
+      description: User not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "User not found"
+            code: "USER_NOT_FOUND"
+
+    InvalidToken:
+      description: Invalid or expired token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Invalid or expired token"
+            code: "INVALID_TOKEN"
+
+    AuthenticationFailed:
+      description: Authentication failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Authentication failed"
+            code: "AUTH_FAILED"
+
+    Unauthorized:
+      description: Unauthorized access
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Unauthorized access"
+            code: "UNAUTHORIZED"
+
+    Forbidden:
+      description: Access forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Access forbidden"
+            code: "FORBIDDEN"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            message: "Internal server error"
+            code: "INTERNAL_ERROR"
+
+tags:
+  - name: Authentication
+    description: User authentication and onboarding
+  - name: Users
+    description: User management operations
+  - name: Transactions
+    description: Transaction management and processing
+  - name: Fraud Detection
+    description: Fraud alerts and security monitoring
+  - name: Behavioral Analysis
+    description: Behavioral profiling and analysis
+  - name: Administration
+    description: Administrative controls and monitoring

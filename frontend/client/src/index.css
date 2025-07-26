@@ -1,0 +1,138 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(0, 0%, 100%);
+  --foreground: hsl(20, 14.3%, 4.1%);
+  --muted: hsl(60, 4.8%, 95.9%);
+  --muted-foreground: hsl(25, 5.3%, 44.7%);
+  --popover: hsl(0, 0%, 100%);
+  --popover-foreground: hsl(20, 14.3%, 4.1%);
+  --card: hsl(0, 0%, 100%);
+  --card-foreground: hsl(20, 14.3%, 4.1%);
+  --border: hsl(20, 5.9%, 90%);
+  --input: hsl(20, 5.9%, 90%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(211, 100%, 99%);
+  --secondary: hsl(60, 4.8%, 95.9%);
+  --secondary-foreground: hsl(24, 9.8%, 10%);
+  --accent: hsl(60, 4.8%, 95.9%);
+  --accent-foreground: hsl(24, 9.8%, 10%);
+  --destructive: hsl(0, 84.2%, 60.2%);
+  --destructive-foreground: hsl(60, 9.1%, 97.8%);
+  --ring: hsl(20, 14.3%, 4.1%);
+  --radius: 0.5rem;
+  
+  /* Banking specific colors */
+  --risk-low: hsl(142, 76%, 36%);
+  --risk-medium: hsl(38, 92%, 50%);
+  --risk-high: hsl(0, 84%, 60%);
+  --banking-blue: hsl(207, 90%, 54%);
+  --banking-gradient-start: hsl(207, 97%, 97%);
+  --banking-gradient-end: hsl(0, 0%, 100%);
+}
+
+.dark {
+  --background: hsl(240, 10%, 3.9%);
+  --foreground: hsl(0, 0%, 98%);
+  --muted: hsl(240, 3.7%, 15.9%);
+  --muted-foreground: hsl(240, 5%, 64.9%);
+  --popover: hsl(240, 10%, 3.9%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --card: hsl(240, 10%, 3.9%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --border: hsl(240, 3.7%, 15.9%);
+  --input: hsl(240, 3.7%, 15.9%);
+  --primary: hsl(207, 90%, 54%);
+  --primary-foreground: hsl(211, 100%, 99%);
+  --secondary: hsl(240, 3.7%, 15.9%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --accent: hsl(240, 3.7%, 15.9%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(0, 62.8%, 30.6%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --ring: hsl(240, 4.9%, 83.9%);
+  --radius: 0.5rem;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer components {
+  .banking-gradient {
+    background: linear-gradient(135deg, var(--banking-gradient-start), var(--banking-gradient-end));
+  }
+  
+  .risk-indicator-low {
+    @apply bg-green-100 text-green-800 border-green-200;
+  }
+  
+  .risk-indicator-medium {
+    @apply bg-yellow-100 text-yellow-800 border-yellow-200;
+  }
+  
+  .risk-indicator-high {
+    @apply bg-red-100 text-red-800 border-red-200;
+  }
+  
+  .transaction-card {
+    @apply bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition-shadow;
+  }
+  
+  .risk-progress-low {
+    @apply bg-green-500;
+  }
+  
+  .risk-progress-medium {
+    @apply bg-yellow-500;
+  }
+  
+  .risk-progress-high {
+    @apply bg-red-500;
+  }
+}
+
+/* Custom animations */
+@keyframes typing {
+  from {
+    width: 0;
+  }
+  to {
+    width: 100%;
+  }
+}
+
+.typing-animation {
+  animation: typing 3.5s steps(40, end);
+}
+
+/* Risk indicator pulse */
+.risk-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Banking interface specific styles */
+.banking-card {
+  @apply bg-white rounded-2xl shadow-lg border border-gray-100;
+}
+
+.banking-button-primary {
+  @apply px-6 py-3 bg-primary text-primary-foreground rounded-lg font-medium transition-colors;
+}
+
+.banking-button-primary:hover {
+  background-color: hsl(var(--primary) / 0.9);
+}
+
+.banking-button-secondary {
+  @apply px-6 py-3 border border-gray-300 text-gray-700 rounded-lg font-medium hover:bg-gray-50 transition-colors;
+}
