@@ -1,13 +1,28 @@
 const tailwindcssAnimate = require('tailwindcss-animate');
 const typography = require('@tailwindcss/typography');
 
-/** @type {import('tailwindcss').Config} */
+/**
+ * Tailwind CSS Config - Reliable Build
+ * - Covers all relevant file types and locations
+ * - Safelists dynamic classes
+ */
 module.exports = {
   darkMode: ["class"],
   content: [
     "./client/index.html",
-    "./client/src/**/*.{js,jsx,ts,tsx}",
-    "./shared/**/*.{ts,tsx,js,jsx}"
+    "./client/src/**/*.{js,jsx,ts,tsx,html}",
+    "./shared/**/*.{js,jsx,ts,tsx,html}"
+  ],
+  safelist: [
+    // Add any dynamic classes here that might be generated at runtime
+    'bg-background', 'bg-primary', 'bg-secondary', 'bg-accent', 'bg-muted', 'bg-destructive',
+    'text-foreground', 'text-primary', 'text-secondary', 'text-accent', 'text-muted', 'text-destructive',
+    'border', 'border-primary', 'border-secondary', 'border-accent', 'border-muted', 'border-destructive',
+    'rounded-lg', 'rounded-md', 'rounded-sm',
+    'shadow', 'shadow-md', 'shadow-lg',
+    'font-bold', 'font-medium', 'font-normal',
+    'animate-pulse', 'animate-spin',
+    // Add more as needed for your dynamic usage
   ],
   theme: {
     extend: {

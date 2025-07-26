@@ -11,7 +11,7 @@ from app.services.token_service import create_magic_link_token, verify_magic_lin
 from app.models import User
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.main import AsyncSessionLocal, mongo_db
+from app.database import AsyncSessionLocal, mongo_db, redis_client, get_db
 import os
 from app.services.alert_service import trigger_alert
 from app.services.audit_log_service import log_login_attempt
@@ -22,7 +22,6 @@ from fido2.server import Fido2Server
 from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
 from fido2.utils import websafe_encode, websafe_decode
 from fido2 import cbor
-from app.main import redis_client
 from fastapi import Depends
 from jose import jwt, JWTError
 from typing import Optional
@@ -32,11 +31,6 @@ RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "FinVault")
 server = Fido2Server(PublicKeyCredentialRpEntity(RP_ID, RP_NAME))
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-# Helper to get DB session
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
 
 @router.post("/register", response_model=RegisterResponse)
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):

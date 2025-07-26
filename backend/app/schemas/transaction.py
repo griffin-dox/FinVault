@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+from typing import List
 
 class TransactionBase(BaseModel):
     user_id: int
@@ -21,3 +22,12 @@ class TransactionRead(TransactionBase):
 
     class Config:
         from_attributes = True 
+
+class TransactionRequest(TransactionCreate):
+    pass
+
+class TransactionResponse(TransactionRead):
+    pass
+
+class TransactionListResponse(BaseModel):
+    transactions: List[TransactionRead] 

@@ -9,3 +9,4 @@ __pycache__/
 attached_assets/
 *.pyc
 .replit
+venv/

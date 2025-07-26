@@ -1,17 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from app.models import Transaction, TransactionStatus, User
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Query
 from app.schemas.admin import (
-    AdminTransactionActionRequest, AdminTransactionActionResponse,
-    AdminUserUpdateRequest, AdminUserResponse,
-    AdminRiskRule, AdminRiskRulesResponse, AdminRiskRuleUpdateRequest,
-    HeatmapDataResponse
+    UserListResponse, UserDetailResponse, TransactionListResponse, 
+    AdminRiskRuleUpdateRequest, AlertListResponse, SystemStatusResponse
 )
+from app.models import User, Transaction, TransactionStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.main import AsyncSessionLocal
-from typing import List
+from sqlalchemy import func
+from app.database import AsyncSessionLocal, mongo_db, get_db
+from app.services.alert_service import trigger_alert
+from app.services.audit_log_service import log_admin_action
+from datetime import datetime, timedelta
+from typing import List, Optional
+import json
 import pytz
-from datetime import datetime
 from app.models.audit_log import AuditLog
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -64,29 +66,38 @@ async def get_transactions(db: AsyncSession = Depends(get_db)):
         } for t in txns
     ]
 
-@router.patch("/override", response_model=AdminTransactionActionResponse)
-async def override_transaction(data: AdminTransactionActionRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Transaction).where(Transaction.id == data.transaction_id))
+@router.patch("/override", response_model=dict) # Changed response_model to dict as per new schema
+async def override_transaction(data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
+    transaction_id = data.get("transaction_id")
+    action = data.get("action")
+
+    if not transaction_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Transaction ID is required.")
+    if not action:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Action is required.")
+
+    result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
     if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found.")
-    if data.action == "approve":
-        txn.status = TransactionStatus.allowed.value
-    elif data.action == "block":
-        txn.status = TransactionStatus.blocked.value
-    elif data.action == "flag":
-        txn.status = TransactionStatus.challenged.value
-    else:
-        raise HTTPException(status_code=400, detail="Invalid action.")
-    await db.commit()
-    return AdminTransactionActionResponse(message=f"Transaction {data.action}d.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
 
-@router.get("/users", response_model=List[AdminUserResponse])
+    if action == "approve":
+        txn.status = TransactionStatus.allowed
+    elif action == "block":
+        txn.status = TransactionStatus.blocked
+    elif action == "flag":
+        txn.status = TransactionStatus.challenged
+    else:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action.")
+    await db.commit()
+    return {"message": f"Transaction {action}d."}
+
+@router.get("/users", response_model=List[UserDetailResponse])
 async def list_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User))
     users = result.scalars().all()
     return [
-        AdminUserResponse(
+        UserDetailResponse(
             id=u.id,
             name=u.name,
             email=u.email,
@@ -96,13 +107,13 @@ async def list_users(db: AsyncSession = Depends(get_db)):
         ) for u in users
     ]
 
-@router.get("/users/{user_id}", response_model=AdminUserResponse)
+@router.get("/users/{user_id}", response_model=UserDetailResponse)
 async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-    return AdminUserResponse(
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    return UserDetailResponse(
         id=user.id,
         name=user.name,
         email=user.email,
@@ -111,20 +122,20 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
         role=user.role.value
     )
 
-@router.patch("/users/{user_id}", response_model=AdminUserResponse)
-async def update_user(user_id: int, data: AdminUserUpdateRequest, db: AsyncSession = Depends(get_db)):
+@router.patch("/users/{user_id}", response_model=UserDetailResponse)
+async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-    if data.name:
-        user.name = data.name
-    if data.phone:
-        user.phone = data.phone
-    if data.role:
-        user.role = data.role
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if data.get("name"): # Use .get() for safety
+        user.name = data["name"]
+    if data.get("phone"): # Use .get() for safety
+        user.phone = data["phone"]
+    if data.get("role"): # Use .get() for safety
+        user.role = data["role"]
     await db.commit()
-    return AdminUserResponse(
+    return UserDetailResponse(
         id=user.id,
         name=user.name,
         email=user.email,
@@ -133,20 +144,20 @@ async def update_user(user_id: int, data: AdminUserUpdateRequest, db: AsyncSessi
         role=user.role.value
     )
 
-@router.put("/users/{user_id}", response_model=AdminUserResponse)
-async def put_update_user(user_id: int, data: AdminUserUpdateRequest, db: AsyncSession = Depends(get_db)):
+@router.put("/users/{user_id}", response_model=UserDetailResponse)
+async def put_update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
-    if data.name:
-        user.name = data.name
-    if data.phone:
-        user.phone = data.phone
-    if data.role:
-        user.role = data.role
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    if data.get("name"): # Use .get() for safety
+        user.name = data["name"]
+    if data.get("phone"): # Use .get() for safety
+        user.phone = data["phone"]
+    if data.get("role"): # Use .get() for safety
+        user.role = data["role"]
     await db.commit()
-    return AdminUserResponse(
+    return UserDetailResponse(
         id=user.id,
         name=user.name,
         email=user.email,
@@ -155,41 +166,41 @@ async def put_update_user(user_id: int, data: AdminUserUpdateRequest, db: AsyncS
         role=user.role.value
     )
 
-@router.delete("/users/{user_id}", response_model=AdminTransactionActionResponse)
+@router.delete("/users/{user_id}", response_model=dict) # Changed response_model to dict
 async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
-        raise HTTPException(status_code=404, detail="User not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     await db.delete(user)
     await db.commit()
-    return AdminTransactionActionResponse(message="User deleted.")
+    return {"message": "User deleted."}
 
-@router.put("/transactions/{transaction_id}", response_model=AdminTransactionActionResponse)
-async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+@router.put("/transactions/{transaction_id}", response_model=dict) # Changed response_model to dict
+async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
     result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
     if not txn:
-        raise HTTPException(status_code=404, detail="Transaction not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
     status = data.get("status")
     if status:
         txn.status = status
         await db.commit()
-        return AdminTransactionActionResponse(message=f"Transaction status updated to {status}.")
-    raise HTTPException(status_code=400, detail="Missing status field.")
+        return {"message": f"Transaction status updated to {status}."}
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing status field.")
 
-@router.get("/risk-rules", response_model=AdminRiskRulesResponse)
+@router.get("/risk-rules", response_model=List[dict]) # Changed response_model to List[dict]
 async def get_risk_rules():
-    return AdminRiskRulesResponse(rules=[AdminRiskRule(rule=k, value=v) for k, v in risk_rules.items()])
+    return [{"rule": k, "value": v} for k, v in risk_rules.items()]
 
-@router.patch("/adjust-risk", response_model=AdminRiskRulesResponse)
+@router.patch("/adjust-risk", response_model=List[dict]) # Changed response_model to List[dict]
 async def adjust_risk_rule(data: AdminRiskRuleUpdateRequest):
     if data.rule not in risk_rules:
-        raise HTTPException(status_code=400, detail="Invalid rule.")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rule.")
     risk_rules[data.rule] = data.value
-    return AdminRiskRulesResponse(rules=[AdminRiskRule(rule=k, value=v) for k, v in risk_rules.items()])
+    return [{"rule": k, "value": v} for k, v in risk_rules.items()]
 
-@router.get("/heatmap-data", response_model=HeatmapDataResponse)
+@router.get("/heatmap-data", response_model=dict) # Changed response_model to dict
 async def get_heatmap_data(db: AsyncSession = Depends(get_db)):
     # Aggregate transactions by location and risk
     result = await db.execute(select(Transaction))
@@ -204,7 +215,7 @@ async def get_heatmap_data(db: AsyncSession = Depends(get_db)):
         {"location": loc, "status": status, "count": count}
         for (loc, status), count in heatmap.items()
     ]
-    return HeatmapDataResponse(data=data)
+    return {"data": data}
 
 @router.get("/login-heatmap", response_model=List[dict])
 async def get_login_heatmap(db: AsyncSession = Depends(get_db)):
@@ -294,18 +305,30 @@ async def get_transaction_trends(db: AsyncSession = Depends(get_db)):
     ]
     return trends
 
-@router.get("/fraud-alerts")
-async def get_fraud_alerts():
+@router.get("/fraud-alerts", response_model=AlertListResponse)
+async def get_fraud_alerts(db: AsyncSession = Depends(get_db)):
     # Dummy: Return recent alerts from in-memory alert service if available
     try:
         from app.services.alert_service import get_alerts
-        return {"alerts": get_alerts()}
+        alerts = get_alerts()
+        # Map to expected structure
+        alert_objs = [
+            {
+                "id": i,
+                "alertType": a["event_type"],
+                "description": a["details"],
+                "severity": "high" if "high" in a["event_type"] else "medium" if "medium" in a["event_type"] else "low",
+                "isResolved": False,
+            }
+            for i, a in enumerate(alerts)
+        ]
+        return AlertListResponse(alerts=alert_objs)
     except ImportError:
         # If alert_service is not available, return dummy data
-        return {"alerts": [
-            {"event_type": "high_risk_transaction", "details": "Transaction blocked for user 123", "timestamp": "2024-05-30T12:34:56Z"},
-            {"event_type": "manual_override", "details": "Admin approved transaction 456", "timestamp": "2024-05-30T13:00:00Z"}
-        ]}
+        return AlertListResponse(alerts=[
+            {"id": 0, "alertType": "high_risk_transaction", "description": "Transaction blocked for user 123", "severity": "high", "isResolved": False},
+            {"id": 1, "alertType": "manual_override", "description": "Admin approved transaction 456", "severity": "medium", "isResolved": False}
+        ])
 
 @router.get("/admin/risk-heatmap", response_model=List[dict])
 async def get_risk_heatmap(db: AsyncSession = Depends(get_db)):
@@ -347,7 +370,7 @@ async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_d
     user = result.scalar_one_or_none()
     if not user:
         from fastapi import Response
-        return Response(status_code=404)
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
     for k, v in data.items():
         if hasattr(user, k):
             setattr(user, k, v)
@@ -360,14 +383,14 @@ async def update_transaction(transaction_id: int, data: dict, db: AsyncSession =
     txn = result.scalar_one_or_none()
     if not txn:
         from fastapi import Response
-        return Response(status_code=404)
+        return Response(status_code=status.HTTP_404_NOT_FOUND)
     for k, v in data.items():
         if hasattr(txn, k):
             setattr(txn, k, v)
     await db.commit()
     return {"message": "Transaction updated"}
 
-@router.get("/api/users")
+@router.get("/api/users", response_model=UserListResponse)
 async def api_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User))
     users = result.scalars().all()
@@ -376,11 +399,11 @@ async def api_users(db: AsyncSession = Depends(get_db)):
     for u in users:
         last_login = None
         audit_result = await db.execute(
-            f"SELECT timestamp FROM audit_logs WHERE user_id = {u.id} AND action = 'login_success' ORDER BY timestamp DESC LIMIT 1"
+            select(AuditLog).where(AuditLog.user_id == u.id, AuditLog.action == "login_success").order_by(AuditLog.timestamp.desc()).limit(1)
         )
-        row = audit_result.first()
+        row = audit_result.scalar_one_or_none()
         if row:
-            last_login = row[0].isoformat() if row[0] else None
+            last_login = row.timestamp.isoformat() if row.timestamp else None
         user_objs.append({
             "id": u.id,
             "name": u.name,
@@ -392,9 +415,9 @@ async def api_users(db: AsyncSession = Depends(get_db)):
             "lastLogin": last_login,
             "isVerified": bool(u.verified and u.verified_at),
         })
-    return {"users": user_objs}
+    return UserListResponse(users=user_objs)
 
-@router.get("/api/transactions")
+@router.get("/api/transactions", response_model=TransactionListResponse)
 async def api_transactions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Transaction))
     txns = result.scalars().all()
@@ -408,10 +431,10 @@ async def api_transactions(db: AsyncSession = Depends(get_db)):
         }
         for t in txns
     ]
-    return {"transactions": txn_objs}
+    return TransactionListResponse(transactions=txn_objs)
 
-@router.get("/api/fraud-alerts")
-async def api_fraud_alerts():
+@router.get("/api/fraud-alerts", response_model=AlertListResponse)
+async def api_fraud_alerts(db: AsyncSession = Depends(get_db)):
     try:
         from app.services.alert_service import get_alerts
         alerts = get_alerts()
@@ -426,19 +449,19 @@ async def api_fraud_alerts():
             }
             for i, a in enumerate(alerts)
         ]
-        return {"alerts": alert_objs}
+        return AlertListResponse(alerts=alert_objs)
     except ImportError:
-        return {"alerts": []}
+        return AlertListResponse(alerts=[])
 
-@router.get("/api/ping-db")
+@router.get("/api/ping-db", response_model=SystemStatusResponse)
 async def ping_db(db: AsyncSession = Depends(get_db)):
     try:
         await db.execute("SELECT 1")
-        return {"ok": True}
-    except Exception:
+        return SystemStatusResponse(status="ok", message="Database connection successful")
+    except Exception as e:
         from fastapi import Response
-        return Response(status_code=500)
+        return SystemStatusResponse(status="error", message=f"Database connection failed: {e}")
 
-@router.get("/api/ping-api")
+@router.get("/api/ping-api", response_model=SystemStatusResponse)
 async def ping_api():
-    return {"ok": True} 
+    return SystemStatusResponse(status="ok", message="API is running") 

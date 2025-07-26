@@ -28,6 +28,7 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
+    cssCodeSplit: false, // Ensure CSS is not split
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -41,6 +42,14 @@ export default defineConfig({
       }
     },
     chunkSizeWarningLimit: 1000 // Increase limit to 1000kb to reduce warnings
+  },
+  css: {
+    postcss: {
+      plugins: [
+        require('tailwindcss'),
+        require('autoprefixer'),
+      ],
+    },
   },
   server: {
     fs: {

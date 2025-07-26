@@ -2,10 +2,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
-from motor.motor_asyncio import AsyncIOMotorClient
-import redis.asyncio as redis
+from app.database import AsyncSessionLocal, mongo_db, redis_client
 from app.api import auth, transaction, dashboard, admin
 
 # Load environment variables
@@ -28,39 +25,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Database configuration
-POSTGRES_URI = os.environ.get("POSTGRES_URI")
-MONGODB_URI = os.environ.get("MONGODB_URI")
-REDIS_URL = os.environ.get("REDIS_URL")
-
-# Initialize database connections
-if POSTGRES_URI:
-    engine = create_async_engine(POSTGRES_URI, echo=False, future=True)
-    AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-else:
-    engine = None
-    AsyncSessionLocal = None
-
-if MONGODB_URI:
-    mongo_client = AsyncIOMotorClient(MONGODB_URI)
-    mongo_db = mongo_client.get_default_database()
-else:
-    mongo_client = None
-    mongo_db = None
-
-if REDIS_URL:
-    redis_client = redis.from_url(REDIS_URL, decode_responses=True)
-else:
-    redis_client = None
-
-# Dependency injection
-async def get_db():
-    if AsyncSessionLocal:
-        async with AsyncSessionLocal() as session:
-            yield session
-    else:
-        yield None
-
 @app.get("/")
 def root():
     return {"message": "FinVault API is running.", "status": "healthy"}
@@ -74,8 +38,8 @@ def favicon():
 def health_check():
     return {
         "status": "ok",
-        "postgres": "connected" if engine else "not configured",
-        "mongodb": "connected" if mongo_client else "not configured",
+        "postgres": "connected" if AsyncSessionLocal else "not configured",
+        "mongodb": "connected" if mongo_db else "not configured",
         "redis": "connected" if redis_client else "not configured"
     }
 

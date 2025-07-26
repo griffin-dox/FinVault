@@ -1,12 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException
-from app.schemas.transaction_flow import TransactionRequest, TransactionResponse
-from app.models import Transaction, TransactionStatus, User
-from app.services.risk_engine import score_transaction
-from app.services.alert_service import trigger_alert
+from fastapi import APIRouter, Depends, HTTPException, status, Request
+from app.schemas.transaction import TransactionRequest, TransactionResponse, TransactionListResponse
+from app.models import User, Transaction, TransactionStatus
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from app.main import AsyncSessionLocal, mongo_db
+from app.database import AsyncSessionLocal, mongo_db, get_db
+from app.services.alert_service import trigger_alert
+from app.services.audit_log_service import log_transaction
+from app.services.risk_engine import score_transaction
 from datetime import datetime
+import uuid
+from typing import List
 
 router = APIRouter(prefix="/transaction", tags=["transaction"])
 
@@ -54,6 +57,8 @@ async def create_transaction(data: TransactionRequest, db: AsyncSession = Depend
     db.add(txn)
     await db.commit()
     await db.refresh(txn)
+    # Log the transaction event
+    await log_transaction(db, user.id, txn.id, status, f"Amount: {data.amount}, Risk: {risk_result['risk_score']}")
     # Placeholder: Hook for fraud visualization (e.g., heatmap)
     # TODO: Add event to heatmap/visualization system
     return TransactionResponse(
@@ -62,4 +67,18 @@ async def create_transaction(data: TransactionRequest, db: AsyncSession = Depend
         risk_level=risk_result["level"],
         reasons=risk_result["reasons"],
         message=message
-    ) 
+    )
+
+@router.get("/", response_model=TransactionListResponse)
+async def list_transactions(user_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Transaction).where(Transaction.user_id == user_id))
+    transactions = result.scalars().all()
+    return TransactionListResponse(transactions=transactions)
+
+@router.get("/{transaction_id}", response_model=TransactionResponse)
+async def get_transaction(transaction_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
+    txn = result.scalar_one_or_none()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found.")
+    return txn 
