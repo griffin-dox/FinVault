@@ -1,3 +1,5 @@
+@reference "tailwindcss";
+
 /* CSS Variables - Fixed for proper Tailwind processing */
 :root {
   --background: hsl(0, 0%, 100%);
