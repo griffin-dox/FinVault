@@ -13,7 +13,7 @@ frontend_origins = os.environ.get("FRONTEND_ORIGINS")
 if frontend_origins:
     origins = [origin.strip() for origin in frontend_origins.split(",") if origin.strip()]
 else:
-    origins = ["http://127.0.0.1:3000", "http://localhost:3000"]
+    origins = ["http://127.0.0.1:3000", "http://localhost:3000", "https://securebank-lcz1.onrender.com"]
 
 app = FastAPI(title="FinVault Backend", version="0.1.0")
 

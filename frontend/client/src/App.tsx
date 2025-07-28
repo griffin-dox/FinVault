@@ -13,7 +13,7 @@ import Transactions from "@/pages/Transactions";
 import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import Navbar from "@/components/Navbar";
-import { AuthProvider } from "@/hooks/use-auth";
+import { AuthProvider, withAuth, withAdminAuth } from "@/hooks/use-auth";
 
 function Router() {
   return (
@@ -26,9 +26,9 @@ function Router() {
           <Route path="/verify-email" component={VerifyEmail} />
           <Route path="/onboarding" component={Onboarding} />
           <Route path="/login" component={Login} />
-          <Route path="/dashboard" component={Dashboard} />
-          <Route path="/transactions" component={Transactions} />
-          <Route path="/admin" component={Admin} />
+          <Route path="/dashboard" component={withAuth(Dashboard)} />
+          <Route path="/transactions" component={withAuth(Transactions)} />
+          <Route path="/admin" component={withAdminAuth(Admin)} />
           <Route component={NotFound} />
         </Switch>
       </main>
