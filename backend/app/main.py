@@ -17,7 +17,8 @@ else:
     origins = [
         "http://127.0.0.1:3000", 
         "http://localhost:3000", 
-        "https://finvault-g6r7.onrender.com"  # Your actual frontend URL
+        "https://finvault-g6r7.onrender.com",  # Backend URL
+        "https://securebank-lcz1.onrender.com"  # Frontend URL
     ]
 
 # Debug: Log the origins being used
