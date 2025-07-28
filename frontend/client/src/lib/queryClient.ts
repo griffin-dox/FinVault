@@ -1,10 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL?.replace(/\/$/, "");
+const API_BASE_URL = import.meta.env.VITE_API_URL;
+if (!API_BASE_URL) {
+  throw new Error("VITE_API_URL environment variable must be set in production for backend API connection.");
+}
 
 function buildApiUrl(path: string) {
   if (!path.startsWith("/")) path = "/" + path;
-  return `${API_BASE_URL}${path}`;
+  return `${API_BASE_URL.replace(/\/$/, "")}${path}`;
 }
 
 export async function apiRequest(
