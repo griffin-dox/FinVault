@@ -1,3 +1,6 @@
 [tool.black]
 line-length = 88
-skip-string-normalization = true 
+skip-string-normalization = true
+
+[project]
+requires-python = ">=3.12,<3.13" 
