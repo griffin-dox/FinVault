@@ -1,16 +1,31 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
-import { copyFileSync } from "fs";
+import { copyFileSync, existsSync } from "fs";
 
 export default defineConfig({
   base: '/',
   plugins: [
     react(),
     {
-      name: 'copy-static-json',
+      name: 'copy-static-files',
       writeBundle() {
-        copyFileSync('static.json', 'dist/static.json');
+        // Copy static.json for Render
+        if (existsSync('static.json')) {
+          copyFileSync('static.json', 'dist/static.json');
+        }
+        // Copy _redirects for alternative hosting platforms
+        if (existsSync('public/_redirects')) {
+          copyFileSync('public/_redirects', 'dist/_redirects');
+        }
+        // Copy vercel.json for Vercel and other platforms
+        if (existsSync('vercel.json')) {
+          copyFileSync('vercel.json', 'dist/vercel.json');
+        }
+        // Copy test.html for debugging
+        if (existsSync('public/test.html')) {
+          copyFileSync('public/test.html', 'dist/test.html');
+        }
       }
     }
   ],
