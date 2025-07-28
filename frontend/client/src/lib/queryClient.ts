@@ -1,10 +1,6 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL;
-console.log("[DEBUG] VITE_API_URL:", API_BASE_URL);
-if (!API_BASE_URL) {
-  throw new Error("VITE_API_URL environment variable must be set in production for backend API connection.");
-}
+const API_BASE_URL = "https://finvault-g6r7.onrender.com";
 
 function buildApiUrl(path: string) {
   if (!path.startsWith("/")) path = "/" + path;
