@@ -42,9 +42,9 @@ export default function TransferModal({ isOpen, onClose }: TransferModalProps) {
 
   const transferMutation = useMutation({
     mutationFn: async (data: TransferInput) => {
-      const response = await apiRequest("POST", "/api/transactions", {
+      const response = await apiRequest("POST", "/api/transaction", {
         ...data,
-        userId: user?.id,
+        user_id: user?.id,
       });
       return await response.json();
     },
@@ -56,7 +56,7 @@ export default function TransferModal({ isOpen, onClose }: TransferModalProps) {
       });
       
       // Invalidate queries to refresh data
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/transaction"] });
       
       // Show success toast after 3 seconds and close modal
       setTimeout(() => {

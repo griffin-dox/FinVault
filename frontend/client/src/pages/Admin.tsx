@@ -223,13 +223,13 @@ export default function Admin() {
   };
 
   const { data: usersData = { users: [] } } = useQuery<{ users: UserType[] }>({
-    queryKey: ["/api/users"],
+    queryKey: ["/api/admin/users"],
   });
   const { data: transactionsData = { transactions: [] } } = useQuery<{ transactions: TransactionType[] }>({
-    queryKey: ["/api/transactions"],
+    queryKey: ["/api/admin/transactions"],
   });
   const { data: fraudAlertsData = { alerts: [] } } = useQuery<{ alerts: FraudAlertType[] }>({
-    queryKey: ["/api/fraud-alerts"],
+    queryKey: ["/api/admin/fraud-alerts"],
   });
   const users = usersData.users;
   const transactions = transactionsData.transactions;
@@ -237,11 +237,11 @@ export default function Admin() {
 
   const updateUserMutation = useMutation({
     mutationFn: async ({ userId, updates }: { userId: string; updates: any }) => {
-      const response = await apiRequest("PUT", `/api/users/${userId}`, updates);
+      const response = await apiRequest("PUT", `/api/admin/users/${userId}`, updates);
       return await response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
       toast({ title: "User updated successfully" });
     },
     onError: () => {
@@ -251,11 +251,11 @@ export default function Admin() {
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ transactionId, status }: { transactionId: string; status: string }) => {
-      const response = await apiRequest("PUT", `/api/transactions/${transactionId}`, { status });
+      const response = await apiRequest("PUT", `/api/admin/transactions/${transactionId}`, { status });
       return await response.json();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/transactions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/transactions"] });
       toast({ title: "Transaction updated successfully" });
     },
     onError: () => {

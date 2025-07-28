@@ -34,7 +34,9 @@ export default function Register() {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterInput) => {
-      const response = await apiRequest("POST", "/api/auth/register", data);
+      // Filter out frontend-only fields before sending to backend
+      const { country, agreeToTerms, ...backendData } = data;
+      const response = await apiRequest("POST", "/api/auth/register", backendData);
       return await response.json();
     },
     onSuccess: (data) => {

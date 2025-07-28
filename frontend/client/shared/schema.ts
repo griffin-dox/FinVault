@@ -65,6 +65,13 @@ export const registerSchema = z.object({
   agreeToTerms: z.boolean().refine(val => val === true, "You must agree to the terms"),
 });
 
+// Backend-compatible schema (without frontend-only fields)
+export const registerBackendSchema = z.object({
+  name: z.string().min(2, "Name must be at least 2 characters"),
+  email: z.string().email("Please enter a valid email address"),
+  phone: z.string().min(10, "Please enter a valid phone number"),
+});
+
 export const transferSchema = z.object({
   recipient: z.string().email("Please enter a valid email address"),
   amount: z.number().min(0.01, "Amount must be greater than 0"),
@@ -72,7 +79,16 @@ export const transferSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  email: z.string().email("Please enter a valid email address"),
+  identifier: z.string().min(1, "Please enter your email, username, or phone number"),
+  behavioral_challenge: z.object({
+    type: z.enum(["typing", "mouse", "touch"]),
+    data: z.any(),
+  }),
+  metrics: z.object({
+    device: z.any().optional(),
+    geo: z.any().optional(),
+    ip: z.string().optional(),
+  }).optional(),
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

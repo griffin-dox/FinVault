@@ -257,7 +257,7 @@ export default function Dashboard() {
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   const { data: transactionsData = { transactions: [] } } = useQuery<{ transactions: Transaction[] }>({
-    queryKey: ["/api/transactions", { userId: user?.id }],
+    queryKey: ["/api/transaction", { user_id: user?.id }],
     enabled: !!user?.id,
   });
   const transactions = transactionsData.transactions;

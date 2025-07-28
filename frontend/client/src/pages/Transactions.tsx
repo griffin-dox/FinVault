@@ -27,7 +27,7 @@ export default function Transactions() {
   const [riskFilter, setRiskFilter] = useState("all");
 
   const { data: transactionsData, isLoading } = useQuery({
-    queryKey: ["/api/transactions", { userId: user?.id }],
+    queryKey: ["/api/transaction", { user_id: user?.id }],
     enabled: !!user?.id,
   });
 

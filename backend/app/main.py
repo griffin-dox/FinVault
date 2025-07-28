@@ -9,17 +9,12 @@ from app.api import auth, transaction, dashboard, admin
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../.env'))
 
 # CORS configuration
-frontend_origins = os.environ.get("FRONTEND_ORIGINS")
-if frontend_origins:
-    origins = [origin.strip() for origin in frontend_origins.split(",") if origin.strip()]
-else:
-    # Default origins if FRONTEND_ORIGINS is not set
-    origins = [
-        "http://127.0.0.1:3000", 
-        "http://localhost:3000", 
-        "https://finvault-g6r7.onrender.com",  # Backend URL
-        "https://securebank-lcz1.onrender.com"  # Frontend URL
-    ]
+origins = [
+    "http://127.0.0.1:3000", 
+    "http://localhost:3000", 
+    "https://finvault-g6r7.onrender.com",  # Backend URL
+    "https://securebank-lcz1.onrender.com"  # Frontend URL
+]
 
 # Debug: Log the origins being used
 print(f"[CORS] Using origins: {origins}")
