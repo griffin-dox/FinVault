@@ -13,7 +13,15 @@ frontend_origins = os.environ.get("FRONTEND_ORIGINS")
 if frontend_origins:
     origins = [origin.strip() for origin in frontend_origins.split(",") if origin.strip()]
 else:
-    origins = ["http://127.0.0.1:3000", "http://localhost:3000", "https://securebank-lcz1.onrender.com"]
+    # Default origins if FRONTEND_ORIGINS is not set
+    origins = [
+        "http://127.0.0.1:3000", 
+        "http://localhost:3000", 
+        "https://finvault-g6r7.onrender.com"  # Your actual frontend URL
+    ]
+
+# Debug: Log the origins being used
+print(f"[CORS] Using origins: {origins}")
 
 app = FastAPI(title="FinVault Backend", version="0.1.0")
 
