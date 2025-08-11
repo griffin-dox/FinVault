@@ -15,4 +15,4 @@ black==23.11.0
 flake8==6.1.0
 fido2==1.1.2
 pytz==2023.3
-slowapi==0.3.1
+slowapi==0.1.9
