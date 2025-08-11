@@ -209,3 +209,7 @@ venv/
 
 # Monitoring and analytics
 .sentryclirc
+
+# Ensure frontend src/lib is tracked (override generic 'lib/' ignore)
+!frontend/client/src/lib/
+!frontend/client/src/lib/**
