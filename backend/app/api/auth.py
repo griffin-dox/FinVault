@@ -22,6 +22,76 @@ from fido2.server import Fido2Server
 from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
 from fido2.utils import websafe_encode, websafe_decode
 from fido2 import cbor
+from jose import jwt, JWTError
+from typing import Optional
+
+RP_ID = os.environ.get("WEBAUTHN_RP_ID", "localhost")
+RP_NAME = os.environ.get("WEBAUTHN_RP_NAME", "FinVault")
+server = Fido2Server(PublicKeyCredentialRpEntity(RP_ID, RP_NAME))
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+# ...existing route definitions...
+
+@router.post("/context-question")
+async def context_question(data: dict, db: AsyncSession = Depends(get_db)):
+    identifier = data.get("identifier")
+    # Example: get last login location from audit logs
+    result = await db.execute(select(User).where((User.email == identifier) | (User.name == identifier) | (User.phone == identifier)))
+    user = result.scalar_one_or_none()
+    if not user:
+        return {"question": "What is your registered email?"}
+    # Fetch last login location from audit logs (mock)
+    question = f"What city did you last log in from? (mock: use 'New York')"
+    return {"question": question}
+
+@router.post("/context-answer")
+async def context_answer(data: dict, db: AsyncSession = Depends(get_db)):
+    identifier = data.get("identifier")
+    answer = data.get("answer")
+    # Validate answer (mock: correct answer is 'New York')
+    if answer.strip().lower() == "new york":
+        return {"success": True}
+    # Alert admins on failed verification
+    trigger_alert("failed_additional_verification", f"User {identifier} failed security question.")
+    return {"success": False, "message": "Incorrect answer. Try again. Admins have been notified."}
+
+@router.post("/ambient-verify")
+async def ambient_verify(data: dict, db: AsyncSession = Depends(get_db)):
+    identifier = data.get("identifier")
+    ambient = data.get("ambient", {})
+    # Example: compare timezone and screen size (mock)
+    expected_timezone = "America/New_York"
+    expected_screen = "1920x1080"
+    if ambient.get("timezone") == expected_timezone and ambient.get("screen") == expected_screen:
+        return {"success": True}
+    # Alert admins on failed ambient verification
+    trigger_alert("failed_additional_verification", f"User {identifier} failed ambient authentication.")
+    return {"success": False, "message": "Ambient data does not match profile. Admins have been notified."}
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Body, Query
+from app.schemas.auth import (
+    RegisterRequest, RegisterResponse, VerifyRequest, VerifyResponse, OnboardingRequest, OnboardingResponse, LoginRequest, LoginResponse,
+    WebAuthnVerifyRequest, BehavioralVerifyRequest, TrustedConfirmRequest, MagicLinkRequest, MagicLinkVerifyRequest, StepupResponse,
+    WebAuthnRegisterBeginRequest, WebAuthnRegisterBeginResponse, WebAuthnRegisterCompleteRequest, WebAuthnRegisterCompleteResponse,
+    WebAuthnAuthBeginRequest, WebAuthnAuthBeginResponse, WebAuthnAuthCompleteRequest, WebAuthnAuthCompleteResponse
+)
+from app.services.email_service import send_magic_link_email
+from app.services.sms_service import send_magic_link_sms
+from app.services.token_service import create_magic_link_token, verify_magic_link_token
+from app.models import User
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from app.database import AsyncSessionLocal, mongo_db, redis_client, get_db
+import os
+from app.services.alert_service import trigger_alert
+from app.services.audit_log_service import log_login_attempt
+from math import radians, cos, sin, asin, sqrt
+from datetime import datetime
+import uuid
+from fido2.server import Fido2Server
+from fido2.webauthn import PublicKeyCredentialRpEntity, PublicKeyCredentialUserEntity
+from fido2.utils import websafe_encode, websafe_decode
+from fido2 import cbor
 from fastapi import Depends
 from jose import jwt, JWTError
 from typing import Optional
@@ -155,67 +225,123 @@ def compare_geo(current, profile):
 
 @router.post("/login", response_model=LoginResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
-    # Find user by identifier (email, phone, or username)
-    user = None
-    result = await db.execute(select(User).where(User.email == data.identifier))
-    user = result.scalar_one_or_none()
-    if not user:
-        result = await db.execute(select(User).where(User.phone == data.identifier))
+    try:
+        # Debug logging
+        print(f"[LOGIN] Attempting login for identifier: {data.identifier}")
+        print(f"[LOGIN] Database session: {db is not None}")
+        
+        # Find user by identifier (email, phone, or username)
+        user = None
+        if db is None:
+            raise HTTPException(status_code=500, detail="Database connection not available")
+            
+        result = await db.execute(select(User).where(User.email == data.identifier))
         user = result.scalar_one_or_none()
-    if not user:
-        result = await db.execute(select(User).where(User.name == data.identifier))
-        user = result.scalar_one_or_none()
-    # Prefer real device location for login event
-    location = None
-    geo = data.metrics.get('geo') if data.metrics else None
-    if geo and not geo.get('fallback') and geo.get('latitude') and geo.get('longitude'):
-        location = f"{geo['latitude']},{geo['longitude']}"
-    elif data.metrics and data.metrics.get('ip'):
-        location = data.metrics['ip']
-    else:
-        location = "unknown"
-    if not user or not (user.verified and user.verified_at):
-        trigger_alert("failed_login", f"Failed login for identifier {data.identifier}")
-        await log_login_attempt(db, user_id=None, location=location, status="failure", details=f"identifier={data.identifier}")
-        raise HTTPException(status_code=401, detail="User not found or not verified.")
-    # --- Behavioral comparison ---
-    profile = mongo_db.behavior_profiles.find_one({"user_id": user.id}) or {}
-    reasons = []
-    risk_score = 0
-    # Typing
-    if data.behavioral_challenge['type'] == 'typing':
-        reasons += compare_typing(data.behavioral_challenge['data'], profile.get('typing_pattern', {}))
-        if any("speed" in r or "error" in r or "timing" in r for r in reasons):
-            risk_score += 10 * len([r for r in reasons if "speed" in r or "error" in r or "timing" in r])
-    # Mouse/Touch
-    if data.behavioral_challenge['type'] in ['mouse', 'touch']:
-        reasons += compare_mouse(data.behavioral_challenge['data'], profile.get('mouse_dynamics', {}))
-        if any("path" in r or "click" in r for r in reasons):
-            risk_score += 10 * len([r for r in reasons if "path" in r or "click" in r])
-    # Device
-    reasons += compare_device(data.metrics.get('device', {}), profile.get('device_fingerprint', {}))
-    if any("Device" in r for r in reasons):
-        risk_score += 20 * len([r for r in reasons if "Device" in r])
-    # Geo
-    reasons += compare_geo(data.metrics.get('geo', {}), profile.get('geo', {}))
-    if any("Geo" in r for r in reasons):
-        risk_score += 20 * len([r for r in reasons if "Geo" in r])
-    # Clamp risk score
-    risk_score = min(risk_score, 100)
-    # Decision
-    if risk_score > 50:
-        trigger_alert("high_risk_login", f"Blocked login for user {user.id} (risk={risk_score})")
-        await log_login_attempt(db, user_id=user.id, location=location, status="blocked", details=f"risk={risk_score}, reasons={reasons}")
-        raise HTTPException(status_code=403, detail={"message": "High risk login detected. Blocked.", "risk": risk_score, "reasons": reasons})
-    elif risk_score > 20:
-        trigger_alert("medium_risk_login", f"Challenged login for user {user.id} (risk={risk_score})")
-        await log_login_attempt(db, user_id=user.id, location=location, status="challenged", details=f"risk={risk_score}, reasons={reasons}")
-        return LoginResponse(message="Medium risk: challenge required", token=None, risk="medium", reasons=reasons)
-    else:
-        trigger_alert("successful_login", f"User {user.id} logged in from device {getattr(data.metrics.get('device', {}), 'os', 'unknown')}")
-        await log_login_attempt(db, user_id=user.id, location=location, status="success", details=f"risk={risk_score}, reasons={reasons}")
-        token = create_magic_link_token({"user_id": user.id, "email": user.email}, expires_in_seconds=3600)
-        return LoginResponse(message="Login successful.", token=token, risk="low", reasons=reasons)
+        if not user:
+            result = await db.execute(select(User).where(User.phone == data.identifier))
+            user = result.scalar_one_or_none()
+        if not user:
+            result = await db.execute(select(User).where(User.name == data.identifier))
+            user = result.scalar_one_or_none()
+            
+        print(f"[LOGIN] User found: {user is not None}")
+        
+        # Prefer real device location for login event
+        location = None
+        geo = data.metrics.get('geo') if data.metrics else None
+        if geo and not geo.get('fallback') and geo.get('latitude') and geo.get('longitude'):
+            location = f"{geo['latitude']},{geo['longitude']}"
+        elif data.metrics and data.metrics.get('ip'):
+            location = data.metrics['ip']
+        else:
+            location = "unknown"
+            
+        if not user or not (user.verified and user.verified_at):
+            print(f"[LOGIN] Login failed - user not found or not verified")
+            trigger_alert("failed_login", f"Failed login for identifier {data.identifier}")
+            await log_login_attempt(db, user_id=None, location=location, status="failure", details=f"identifier={data.identifier}")
+            raise HTTPException(status_code=401, detail="User not found or not verified.")
+            
+        # --- Behavioral comparison ---
+        profile = {}
+        if mongo_db is not None:
+            profile = await mongo_db.behavior_profiles.find_one({"user_id": user.id}) or {}
+        else:
+            print("[LOGIN] Warning: MongoDB not available, skipping behavioral analysis")
+            
+        reasons = []
+        risk_score = 0
+        
+        # Typing
+        if data.behavioral_challenge and data.behavioral_challenge.get('type') == 'typing':
+            reasons += compare_typing(data.behavioral_challenge['data'], profile.get('typing_pattern', {}))
+            if any("speed" in r or "error" in r or "timing" in r for r in reasons):
+                risk_score += 10 * len([r for r in reasons if "speed" in r or "error" in r or "timing" in r])
+                
+        # Mouse/Touch
+        if data.behavioral_challenge and data.behavioral_challenge.get('type') in ['mouse', 'touch']:
+            reasons += compare_mouse(data.behavioral_challenge['data'], profile.get('mouse_dynamics', {}))
+            if any("path" in r or "click" in r for r in reasons):
+                risk_score += 10 * len([r for r in reasons if "path" in r or "click" in r])
+                
+        # Device
+        if data.metrics:
+            reasons += compare_device(data.metrics.get('device', {}), profile.get('device_fingerprint', {}))
+            if any("Device" in r for r in reasons):
+                risk_score += 20 * len([r for r in reasons if "Device" in r])
+                
+        # Geo
+        if data.metrics:
+            reasons += compare_geo(data.metrics.get('geo', {}), profile.get('geo', {}))
+            if any("Geo" in r for r in reasons):
+                risk_score += 20 * len([r for r in reasons if "Geo" in r])
+                
+        # Clamp risk score
+        risk_score = min(risk_score, 100)
+        
+        print(f"[LOGIN] Risk score: {risk_score}, Reasons: {reasons}")
+        
+        # Decision
+        # New thresholds: low (<=40), medium (41-60), high (>60)
+        if risk_score > 60:
+            trigger_alert("high_risk_login", f"Blocked login for user {user.id} (risk={risk_score})")
+            await log_login_attempt(db, user_id=user.id, location=location, status="blocked", details=f"risk={risk_score}, reasons={reasons}")
+            raise HTTPException(status_code=403, detail={"message": "High risk login detected. Blocked.", "risk": risk_score, "reasons": reasons})
+        elif risk_score > 40:
+            trigger_alert("medium_risk_login", f"Challenged login for user {user.id} (risk={risk_score})")
+            await log_login_attempt(db, user_id=user.id, location=location, status="challenged", details=f"risk={risk_score}, reasons={reasons}")
+            return LoginResponse(message="Medium risk: challenge required", token=None, risk="medium", reasons=reasons)
+        else:
+            trigger_alert("successful_login", f"User {user.id} logged in from device {getattr(data.metrics.get('device', {}), 'os', 'unknown')}")
+            await log_login_attempt(db, user_id=user.id, location=location, status="success", details=f"risk={risk_score}, reasons={reasons}")
+            token = create_magic_link_token({"user_id": user.id, "email": user.email}, expires_in_seconds=3600)
+            print(f"[LOGIN] Login successful for user {user.id}")
+            return LoginResponse(
+                message="Login successful.",
+                token=token,
+                risk="low",
+                reasons=reasons,
+                user={
+                    "id": user.id,
+                    "email": user.email,
+                    "name": user.name,
+                    "role": user.role,
+                    "risk": "low",
+                    "verified": user.verified,
+                    "lastLogin": datetime.utcnow().isoformat(),
+                    "location": location
+                }
+            )
+            
+    except HTTPException:
+        # Re-raise HTTP exceptions as-is
+        raise
+    except Exception as e:
+        # Log unexpected errors
+        print(f"[LOGIN] Unexpected error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/verify-email")
 async def verify_email(data: dict, db: AsyncSession = Depends(get_db)):

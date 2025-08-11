@@ -37,9 +37,17 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: "dist", // Output to frontend/client/dist
+    outDir: "dist",
     emptyOutDir: true,
-    chunkSizeWarningLimit: 1000, // Increase warning limit to 1MB
+    chunkSizeWarningLimit: 1000,
+    sourcemap: false, // Disable source maps in production for security
+    minify: 'terser', // Use terser for better minification
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console.log in production
+        drop_debugger: true,
+      },
+    },
     rollupOptions: {
       output: {
         entryFileNames: `assets/[name]-[hash].js`,
@@ -54,5 +62,13 @@ export default defineConfig({
         }
       }
     }
+  },
+  // Production optimizations
+  define: {
+    __DEV__: false,
+  },
+  // Optimize dependencies
+  optimizeDeps: {
+    include: ['react', 'react-dom', '@tanstack/react-query'],
   },
 });

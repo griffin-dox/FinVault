@@ -51,13 +51,14 @@ interface BehavioralData {
   } | null;
 }
 
-// Add helper for base64url encoding
-function bufferToBase64url(buffer: ArrayBuffer) {
-  return btoa(String.fromCharCode(...new Uint8Array(buffer)))
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_')
-    .replace(/=+$/, '');
-}
+  // Add helper for base64url encoding
+  function bufferToBase64url(buffer: ArrayBuffer) {
+    // Use Array.from for compatibility with downlevelIteration
+    return btoa(String.fromCharCode(...Array.from(new Uint8Array(buffer))))
+      .replace(/\+/g, '-')
+      .replace(/\//g, '_')
+      .replace(/=+$/, '');
+  }
 
 export default function Onboarding() {
   const [, setLocation] = useLocation();
@@ -327,32 +328,40 @@ export default function Onboarding() {
     requestLocationAccess();
   }, []);
 
+
+  // Helper: Calculate verification status and risk level
+  function getVerificationStatusAndRisk() {
+    // Example: If all activities complete and accuracy > 80%, pass; else fail
+    const verification_status = (activityProgress === 100 && (behavioralData.typingAnalysis?.accuracy || 0) > 80) ? "passed" : "failed";
+    // Example: If accuracy < 60 or location missing, high risk; else medium/low
+    let risk_level = "low";
+    if ((behavioralData.typingAnalysis?.accuracy || 0) < 60 || !locationComplete) risk_level = "high";
+    else if ((behavioralData.typingAnalysis?.accuracy || 0) < 80) risk_level = "medium";
+    return { verification_status, risk_level };
+  }
+
   const completeMutation = useMutation({
     mutationFn: async () => {
       const email = localStorage.getItem("securebank_pending_email");
       if (!email) throw new Error("No pending registration found");
-      
-      const response = await apiRequest("POST", "/api/auth/complete-onboarding", {
-        email,
-        deviceFingerprint: deviceInfo,
-        behaviorProfile: {
-          ...behavioralData,
-          deviceInfo,
-          completedActivities: {
-            typing: typingComplete,
-            mouse: mouseComplete,
-            touch: touchComplete,
-            scroll: scrollComplete,
-            dragDrop: dragDropComplete,
-            location: locationComplete
-          }
-        },
+      const { verification_status, risk_level } = getVerificationStatusAndRisk();
+      // POST behavioral profile to backend
+      const response = await apiRequest("POST", "/api/behavior-profile", {
+        user_id: email, // or userId if available
+        typing_pattern: behavioralData.typingAnalysis,
+        mouse_dynamics: behavioralData.mouseMovement,
+        device_fingerprint: deviceInfo,
+        verification_status,
+        risk_level,
       });
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || "Profile creation failed");
+      }
       return await response.json();
     },
     onSuccess: (data) => {
       localStorage.removeItem("securebank_pending_email");
-      localStorage.setItem("securebank_user", JSON.stringify(data.user));
       toast({
         title: "Behavioral Profile Complete!",
         description: "Your comprehensive security profile has been created.",

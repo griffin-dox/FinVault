@@ -2,15 +2,27 @@
   "root": ".",
   "clean_urls": true,
   "routes": {
+    "/debug": "/debug.html",
+    "/test": "/test.html",
     "/**": "/index.html"
   },
   "headers": {
     "/**": {
-      "Cache-Control": "public, max-age=0, must-revalidate"
+      "Cache-Control": "public, max-age=0, must-revalidate",
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "X-XSS-Protection": "1; mode=block",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()"
     },
     "/assets/**": {
-      "Cache-Control": "public, max-age=31536000, immutable"
+      "Cache-Control": "public, max-age=31536000, immutable",
+      "X-Content-Type-Options": "nosniff"
+    },
+    "/favicon.ico": {
+      "Cache-Control": "public, max-age=86400"
     }
   },
-  "error_page": "/index.html"
+  "error_page": "/index.html",
+  "https_only": true
 } 

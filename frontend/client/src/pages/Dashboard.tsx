@@ -167,7 +167,18 @@ function DeviceManagement() {
       setError(null);
       try {
         const res = await fetch("/api/auth/webauthn/devices", { credentials: "include" });
-        if (!res.ok) throw new Error("Failed to fetch devices");
+        if (!res.ok) {
+          // Try to parse error as JSON, fallback to text
+          let errorMsg = "Failed to fetch devices";
+          try {
+            const errJson = await res.json();
+            errorMsg = errJson.detail || JSON.stringify(errJson);
+          } catch {
+            const errText = await res.text();
+            errorMsg = errText.startsWith('<') ? 'Authentication required or server error.' : errText;
+          }
+          throw new Error(errorMsg);
+        }
         const data = await res.json();
         setDevices(data.devices || []);
       } catch (e: any) {
@@ -293,8 +304,10 @@ export default function Dashboard() {
   };
 
   // Use isVerified and lastLogin from user object if available
-  const isVerified = user?.isVerified;
+  const isVerified = user?.isVerified ?? false;
   const lastLogin = user?.lastLogin;
+  const riskLevel = user?.riskLevel || 'Low';
+  const location = user?.country || 'Unknown';
 
   return (
     <section className="py-8 min-h-screen bg-gray-50">
@@ -499,22 +512,22 @@ export default function Dashboard() {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-gray-600">Risk Level</span>
-                          <Badge variant="outline" className="text-green-600 border-green-200 bg-green-50">
-                            <div className="w-2 h-2 bg-green-400 rounded-full mr-2"></div>
-                            {user?.riskLevel || 'Low'}
+                          <Badge variant="outline" className={riskLevel === 'Low' ? 'text-green-600 border-green-200 bg-green-50' : riskLevel === 'Medium' ? 'text-yellow-600 border-yellow-200 bg-yellow-50' : 'text-red-600 border-red-200 bg-red-50'}>
+                            <div className={`w-2 h-2 rounded-full mr-2 ${riskLevel === 'Low' ? 'bg-green-400' : riskLevel === 'Medium' ? 'bg-yellow-400' : 'bg-red-400'}`}></div>
+                            {riskLevel}
                           </Badge>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-sm text-gray-600">Device Trust</span>
-                          <div className="flex items-center text-sm text-green-600">
+                          <div className={`flex items-center text-sm ${isVerified ? 'text-green-600' : 'text-red-600'}`}>
                             <CheckCircle className="mr-1 h-4 w-4" />
-                            Verified
+                            {isVerified ? 'Verified' : 'Unverified'}
                           </div>
                         </div>
                         <div className="pt-3 border-t border-gray-100">
                           <div className="text-xs text-gray-500 space-y-1">
-                            <p>Last Login: {lastLogin ? new Date(lastLogin).toLocaleString() : 'Just now'}</p>
-                            <p>Location: New York, NY</p>
+                            <p>Last Login: {lastLogin ? new Date(lastLogin).toLocaleString() : 'Unknown'}</p>
+                            <p>Location: {location}</p>
                           </div>
                         </div>
                       </div>

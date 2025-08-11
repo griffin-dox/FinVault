@@ -31,7 +31,10 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     message: str
-    token: Optional[str] 
+    token: Optional[str]
+    risk: Optional[str] = None
+    reasons: Optional[list] = []
+    user: Optional[dict] = None
 
 class WebAuthnVerifyRequest(BaseModel):
     identifier: str

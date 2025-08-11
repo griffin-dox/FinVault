@@ -5,8 +5,12 @@ from dotenv import load_dotenv
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../../.env'))
 
-JWT_SECRET = os.getenv("JWT_SECRET")
+JWT_SECRET = os.getenv("JWT_SECRET", "fallback-secret-key-for-development-only")
 JWT_ALGORITHM = "HS256"
+
+# Warn if using fallback secret
+if JWT_SECRET == "fallback-secret-key-for-development-only":
+    print("[WARNING] Using fallback JWT secret. Set JWT_SECRET environment variable for production.")
 
 
 def create_magic_link_token(data: dict, expires_in_seconds: int = 900):

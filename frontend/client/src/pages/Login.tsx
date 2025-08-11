@@ -31,13 +31,22 @@ export default function Login() {
   const [challengeComplete, setChallengeComplete] = useState(false);
 
   // Step 3: Background metrics
-  const [metrics, setMetrics] = useState({ ip: "", geo: { latitude: null, longitude: null, accuracy: null, fallback: true }, device: {} });
+  const [metrics, setMetrics] = useState<{ ip: string; geo: { latitude: number | null; longitude: number | null; accuracy: number | null; fallback: boolean }; device: { browser?: string } }>({ ip: "", geo: { latitude: null, longitude: null, accuracy: null, fallback: true }, device: {} });
   const [metricsPreviewOpen, setMetricsPreviewOpen] = useState(false);
 
   // Risk and feedback state
   const [risk, setRisk] = useState<string | null>(null);
   const [riskReasons, setRiskReasons] = useState<string[]>([]);
   const [showRiskModal, setShowRiskModal] = useState(false);
+
+  // Ensure modal is only shown for medium/high risk
+  useEffect(() => {
+    if (risk === "low") {
+      setShowRiskModal(false);
+    } else if (risk === "medium" || risk === "high") {
+      setShowRiskModal(true);
+    }
+  }, [risk]);
   const [feedbackSent, setFeedbackSent] = useState(false);
 
   // Add new state for step-up verification
@@ -46,11 +55,16 @@ export default function Login() {
   const [stepupError, setStepupError] = useState<string | null>(null);
   const [trustedDeviceEligible, setTrustedDeviceEligible] = useState<boolean>(false);
 
+  // Security question state
+  const [showSecurityQuestion, setShowSecurityQuestion] = useState(false);
+  const [securityQuestion, setSecurityQuestion] = useState("");
+  const [securityAnswer, setSecurityAnswer] = useState("");
+
   // Randomize challenge type on mount
   useEffect(() => {
     const isMobile = /Mobi|Android/i.test(navigator.userAgent);
     const types = isMobile ? ["typing", "touch"] : ["typing", "mouse"];
-    setChallengeType(types[Math.floor(Math.random() * types.length)]);
+  setChallengeType(types[Math.floor(Math.random() * types.length)] as "typing" | "mouse" | "touch");
   }, []);
 
   // Collect background metrics (IP, geo, device, etc.)
@@ -63,7 +77,7 @@ export default function Login() {
         ip = (await ipRes.json()).ip;
       } catch {}
       // Geolocation
-      let geo = { latitude: null, longitude: null, accuracy: null, fallback: true };
+  let geo: { latitude: number | null; longitude: number | null; accuracy: number | null; fallback: boolean } = { latitude: null, longitude: null, accuracy: null, fallback: true };
       if (navigator.geolocation) {
         await new Promise((resolve) => {
           navigator.geolocation.getCurrentPosition(
@@ -109,35 +123,70 @@ export default function Login() {
         metrics,
       };
       const response = await apiRequest("POST", "/api/auth/login", payload);
-      return await response.json();
+      // Log full response for debugging
+      const data = await response.json();
+      if (import.meta.env.DEV) {
+        console.log("[LOGIN API RESPONSE]", data);
+      }
+      return data;
     },
     onSuccess: (data) => {
-      if (data.risk === "low") {
+      // Fallback if risk is missing
+      const riskLevel = data.risk || "unknown";
+      if (import.meta.env.DEV) {
+        console.log("[LOGIN onSuccess] risk:", riskLevel, "data:", data);
+      }
+      if (riskLevel === "low") {
         login(data.user);
+        setRisk(null);
+        setRiskReasons([]);
+        setShowRiskModal(false);
         toast({
           title: "Welcome back!",
           description: "You have successfully signed in.",
         });
         setLocation("/dashboard");
-      } else if (data.risk === "medium") {
-        setRisk(data.risk);
+      } else if (riskLevel === "medium") {
+        setLocation(`/additional-verification?identifier=${encodeURIComponent(identifier)}`);
+      } else if (riskLevel === "high") {
+        setRisk(riskLevel);
         setRiskReasons(data.reasons || []);
-        setStepupOptions(data.stepup_verification || ["webauthn", "behavioral", "trusted_device", "magic_link"]);
-        setTrustedDeviceEligible(data.trusted_device_eligible || false);
         setShowRiskModal(true);
+        toast({
+          title: "Login Blocked: High Risk",
+          description: (data.reasons && data.reasons.length > 0)
+            ? data.reasons.join("; ")
+            : "Your login was blocked for security reasons.",
+          variant: "destructive",
+        });
       } else {
-        setRisk(data.risk);
-        setRiskReasons(data.reasons || []);
+        // Unknown risk, treat as failed
+        setRisk(riskLevel);
+        setRiskReasons(data.reasons || ["Unknown risk level"]);
         setShowRiskModal(true);
+        toast({
+          title: "Login Failed",
+          description: (data.reasons && data.reasons.length > 0)
+            ? data.reasons.join("; ")
+            : "Unknown risk level.",
+          variant: "destructive",
+        });
       }
     },
     onError: (error: any) => {
-      setRisk(error?.detail?.risk || "high");
-      setRiskReasons(error?.detail?.reasons || [error?.detail?.message || "Unknown error"]);
+      // Only block if risk is high or status is 403
+      const status = error?.status;
+      const riskLevel = error?.detail?.risk || (status === 403 ? "high" : "unknown");
+      const reasons = error?.detail?.reasons || [error?.detail?.message || error?.message || "Unknown error"];
+      if (import.meta.env.DEV) {
+        console.error("[LOGIN onError]", error);
+      }
+      setRisk(riskLevel);
+      setRiskReasons(reasons);
       setShowRiskModal(true);
       toast({
-        title: "Login Failed",
-        description: error?.detail?.message || error?.message || "Invalid credentials",
+        title: riskLevel === "high" ? "Login Blocked: High Risk" : "Login Failed",
+        description: reasons.join("; "),
         variant: "destructive",
       });
     },
@@ -194,7 +243,7 @@ export default function Login() {
         const wpm = (TYPING_SAMPLE.split(" ").length / duration) * 60;
         const errorRate =
           typed.length === TYPING_SAMPLE.length
-            ? [...typed].filter((c, i) => c !== TYPING_SAMPLE[i]).length / TYPING_SAMPLE.length
+            ? Array.from(typed).filter((c, i) => c !== TYPING_SAMPLE[i]).length / TYPING_SAMPLE.length
             : 1;
         onComplete({
           wpm,
@@ -298,7 +347,7 @@ export default function Login() {
 
   // Add helper for base64url encoding
   function bufferToBase64url(buffer: ArrayBuffer) {
-    return btoa(String.fromCharCode(...new Uint8Array(buffer)))
+  return btoa(String.fromCharCode(...Array.from(new Uint8Array(buffer))))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
       .replace(/=+$/, '');
@@ -403,9 +452,13 @@ export default function Login() {
             {risk === "high" ? "High Risk Login Blocked" : risk === "medium" ? "Additional Verification Required" : "Login Risk"}
           </DialogTitle>
           <DialogDescription>
-            <ul className="list-disc pl-5 text-sm text-gray-700">
-              {riskReasons.map((r, i) => <li key={i}>{r}</li>)}
-            </ul>
+            {riskReasons.length > 0 ? (
+              <ul className="list-disc pl-5 text-sm text-gray-700">
+                {riskReasons.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            ) : (
+              <div className="text-sm text-gray-700">No specific reasons provided. Please contact support.</div>
+            )}
             {risk === "medium" && (
               <div className="mt-4 flex flex-col gap-3">
                 {stepupError && <div className="text-red-600 text-xs">{stepupError}</div>}
@@ -413,41 +466,7 @@ export default function Login() {
                   <Button disabled={!!stepupInProgress} onClick={async () => {
                     setStepupInProgress("webauthn"); setStepupError(null);
                     try {
-                      // 1. Begin WebAuthn auth
-                      const begin = await apiRequest("POST", "/api/auth/webauthn/auth/begin", { identifier });
-                      const { publicKey, challenge_id } = await begin.json ? await begin.json() : begin;
-                      // 2. Prepare publicKey for navigator.credentials.get
-                      publicKey.challenge = Uint8Array.from(atob(publicKey.challenge), c => c.charCodeAt(0));
-                      if (publicKey.allowCredentials) {
-                        publicKey.allowCredentials = publicKey.allowCredentials.map((cred: any) => ({
-                          ...cred,
-                          id: Uint8Array.from(atob(cred.id), c => c.charCodeAt(0))
-                        }));
-                      }
-                      // 3. navigator.credentials.get
-                      const assertion = await navigator.credentials.get({ publicKey });
-                      if (!assertion) throw new Error("WebAuthn failed or was cancelled.");
-                      // 4. Prepare credential for backend
-                      const credential = {
-                        id: assertion.id,
-                        type: assertion.type,
-                        rawId: bufferToBase64url(assertion.rawId),
-                        response: {
-                          authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
-                          clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
-                          signature: bufferToBase64url(assertion.response.signature),
-                          userHandle: assertion.response.userHandle ? bufferToBase64url(assertion.response.userHandle) : null,
-                        }
-                      };
-                      // 5. Complete WebAuthn auth
-                      const complete = await apiRequest("POST", "/api/auth/webauthn/auth/complete", { identifier, credential, challenge_id });
-                      const result = await complete.json ? await complete.json() : complete;
-                      if (result.token) {
-                        login(result.user || { email: identifier });
-                        setLocation("/dashboard");
-                        return;
-                      }
-                      throw new Error(result.message || "WebAuthn authentication failed.");
+                      // ...existing code...
                     } catch (e: any) {
                       setStepupError(e.message || "WebAuthn failed");
                     }
@@ -458,14 +477,7 @@ export default function Login() {
                   <Button disabled={!!stepupInProgress} onClick={async () => {
                     setStepupInProgress("behavioral"); setStepupError(null);
                     try {
-                      // Re-run behavioral challenge
-                      setShowRiskModal(false);
-                      setChallengeComplete(false);
-                      setTimeout(() => setShowRiskModal(true), 500); // Reopen modal after challenge
-                      // On challenge complete, call /api/auth/behavioral-verify
-                      // const res = await apiRequest("POST", "/api/auth/behavioral-verify", { identifier, challengeData, metrics });
-                      // if (res.ok) { login(await res.json()); setLocation("/dashboard"); return; }
-                      throw new Error("Behavioral step-up not implemented in demo");
+                      // ...existing code...
                     } catch (e: any) { setStepupError(e.message || "Behavioral verification failed"); }
                     setStepupInProgress(null);
                   }}>Retry Behavioral Challenge</Button>
@@ -474,9 +486,7 @@ export default function Login() {
                   <Button disabled={!!stepupInProgress} onClick={async () => {
                     setStepupInProgress("trusted_device"); setStepupError(null);
                     try {
-                      // const res = await apiRequest("POST", "/api/auth/trusted-confirm", { identifier, device: metrics.device, ip: metrics.ip });
-                      // if (res.ok) { login(await res.json()); setLocation("/dashboard"); return; }
-                      throw new Error("Trusted device step-up not implemented in demo");
+                      // ...existing code...
                     } catch (e: any) { setStepupError(e.message || "Trusted device verification failed"); }
                     setStepupInProgress(null);
                   }}>Confirm Trusted Device</Button>
@@ -485,12 +495,83 @@ export default function Login() {
                   <Button disabled={!!stepupInProgress} onClick={async () => {
                     setStepupInProgress("magic_link"); setStepupError(null);
                     try {
-                      // const res = await apiRequest("POST", "/api/auth/send-magic-link", { identifier });
-                      // if (res.ok) { setStepupError("Check your inbox for a login link."); return; }
-                      throw new Error("Magic link step-up not implemented in demo");
+                      // ...existing code...
                     } catch (e: any) { setStepupError(e.message || "Magic link failed"); }
                     setStepupInProgress(null);
                   }}>Send me a magic link</Button>
+                )}
+                {/* Security Question Modal */}
+                <Button disabled={!!stepupInProgress} onClick={async () => {
+                  setStepupInProgress("context_question");
+                  setStepupError(null);
+                  // Fetch question from backend
+                  const res = await fetch("/api/auth/context-question", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ identifier })
+                  });
+                  const data = await res.json();
+                  setSecurityQuestion(data.question);
+                  setShowSecurityQuestion(true);
+                  setStepupInProgress(null);
+                }}>Answer Security Question</Button>
+                {/* Ambient Verification Modal */}
+                <Button disabled={!!stepupInProgress} onClick={async () => {
+                  setStepupInProgress("ambient_auth");
+                  setStepupError(null);
+                  // Collect ambient data
+                  const ambient = {
+                    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+                    screen: `${window.screen.width}x${window.screen.height}`,
+                    orientation: window.screen.orientation?.type || "unknown",
+                    language: navigator.language,
+                  };
+                  // Send to backend
+                  const res = await fetch("/api/auth/ambient-verify", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ identifier, ambient })
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    toast({ title: "Environment Verified", description: "Ambient authentication successful!" });
+                    loginMutation.mutate();
+                  } else {
+                    setStepupError(data.message || "Ambient authentication failed");
+                  }
+                  setStepupInProgress(null);
+                }}>Verify Environment</Button>
+                {/* Security Question Modal UI */}
+                {showSecurityQuestion && (
+                  <div className="p-4 bg-white rounded shadow mt-2">
+                    <div className="mb-2 font-bold">Security Question</div>
+                    <div className="mb-2">{securityQuestion}</div>
+                    <input
+                      type="text"
+                      className="border rounded p-2 w-full mb-2"
+                      value={securityAnswer}
+                      onChange={e => setSecurityAnswer(e.target.value)}
+                      placeholder="Your answer"
+                    />
+                    <Button onClick={async () => {
+                      setStepupError(null);
+                      const res = await fetch("/api/auth/context-answer", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ identifier, answer: securityAnswer })
+                      });
+                      const data = await res.json();
+                      if (data.success) {
+                        toast({ title: "Verified", description: "Security question answered correctly!" });
+                        setShowSecurityQuestion(false);
+                        loginMutation.mutate();
+                      } else {
+                        setStepupError(data.message || "Incorrect answer");
+                      }
+                    }}>Submit Answer</Button>
+                    <Button variant="secondary" onClick={() => setShowSecurityQuestion(false)}>Cancel</Button>
+                    {stepupError && <div className="text-red-600 text-xs mt-2">{stepupError}</div>}
+                  </div>
                 )}
               </div>
             )}

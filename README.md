@@ -1,66 +1,91 @@
 # FinVault
 
-A modern, secure, AI-enhanced banking MVP with passwordless authentication, behavioral risk analysis, and real-time fraud analytics.
+FinVault is a secure, AI-powered banking MVP featuring passwordless authentication (magic link, behavioral biometrics), real-time risk scoring, fraud analytics, and admin override. Data flows from frontend (React) to backend (FastAPI) via REST API, with risk analysis and fraud detection at transaction time.
 
 ---
 
-## Directory Structure
+## Architecture
 
-```
-FinVault/
-├── backend/        # FastAPI backend (Python)
-├── frontend/       # React frontend (TypeScript)
-│   └── client/     # Main React app
-├── attached_assets/
-├── ...other config and docs
-```
+**Backend:**
+
+- FastAPI app (`backend/app/main.py`) with modular routers (`auth`, `admin`, `dashboard`, `transaction`)
+- Security middleware and environment validation on startup
+- Async DB: PostgreSQL (SQLAlchemy), MongoDB (Motor), Redis
+- Celery for async tasks (email, alerts)
+- Risk engine (`app/services/risk_engine.py`) for transaction scoring
+- RBAC middleware (`app/middlewares/rbac.py`) for role-based access
+
+**Frontend:**
+
+- React/TypeScript app (`frontend/client/src/`)
+- Custom hooks for authentication, device info, typing biometrics (`src/hooks/`)
+- Shared schemas/types (`shared/schema.ts`)
+- Tailwind CSS for styling
 
 ---
 
 ## Quickstart
 
 ### 1. Clone the repo
+
 ```bash
 git clone <repo-url>
 cd FinVault
 ```
 
 ### 2. Setup Backend
-```bash
-cd backend
-python -m venv env
-source env/bin/activate  # On Windows: env\Scripts\activate
-pip install -r requirements.txt
-cp .env.example .env  # Edit with your secrets
+
+cp .env.example .env # Edit with your secrets
 uvicorn app.main:app --reload
-```
 
-### 3. Setup Frontend
-```bash
+````bash
 cd frontend/client
-npm install
-cp .env.example .env  # Edit with your API URL, etc.
-npm run dev
-```
-
-### 4. Local Dev Scripts (from project root)
 ```bash
-# Start backend
-npm run dev:backend
-# Start frontend
 npm run dev:frontend
-# Start both (requires 'concurrently')
 npm run dev:all
-```
-
----
+````
 
 ## Environment Variables
+
 - See `.env.example` in both `backend/` and `frontend/client/` for required variables.
 
 ---
 
+- Data models: update in `app/models/`
+
+- Shared types: update in `shared/schema.ts`
+
+- PostgreSQL, MongoDB Atlas, Redis, SMTP (email)
+
+---
+
+- Put business logic in `app/services/`
+- Use Pydantic schemas for validation (`app/schemas/`)
+- Use Celery for async/background tasks
+
+**Don't:**
+
+- Mix business logic with API routers
+- Hardcode secrets or config
+- Skip risk scoring for transactions
+- Bypass RBAC middleware for protected routes
+- Commit test data or credentials
+
+---
+
+## To-Do List
+
+- Add/clarify test strategy and files
+- Expand documentation (API, onboarding, security)
+- Harden security (JWT, CORS, secrets)
+- Add more behavioral analytics and fraud detection
+- Improve error handling and logging
+- Document custom hooks and shared schemas
+
+---
+
 ## Linting & Formatting
+
 - Python: `black`, `flake8`
 - JS/TS: `eslint`, `prettier`
 - Pre-commit hooks auto-format and lint code before commit.
@@ -68,5 +93,6 @@ npm run dev:all
 ---
 
 ## Contributing
+
 - See `CONTRIBUTING.md` (coming soon)
-- PRs welcome! 
+- PRs welcome!

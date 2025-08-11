@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { Link, useLocation } from "wouter";
 import { Shield, User, LogOut, Menu, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { HealthIndicator } from "./HealthIndicator";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -51,6 +52,9 @@ export default function Navbar() {
                 </button>
               </Link>
             ))}
+            
+            {/* Health Indicator */}
+            <HealthIndicator showDetailsOnClick={true} />
           </div>
 
           {/* Desktop User Menu / Auth Buttons */}
@@ -140,6 +144,20 @@ export default function Navbar() {
                   </button>
                 </Link>
               ))}
+
+              {/* Mobile Health Check Link */}
+              <Link href="/health">
+                <button
+                  onClick={() => setIsMobileMenuOpen(false)}
+                  className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isActive("/health")
+                      ? "bg-primary/10 text-primary"
+                      : "text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  System Health
+                </button>
+              </Link>
 
               {/* Mobile User Info / Auth */}
               <div className="pt-4 border-t border-gray-200">
