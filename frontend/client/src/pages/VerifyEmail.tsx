@@ -32,7 +32,7 @@ export default function VerifyEmail() {
         title: "Email Verified!",
         description: "Your email has been successfully verified.",
       });
-      setLocation("/onboarding");
+  setLocation("/login");
     },
     onError: (error: any) => {
       toast({

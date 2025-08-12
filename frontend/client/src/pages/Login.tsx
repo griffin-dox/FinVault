@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 export default function Login() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const { login } = useAuth();
+  const { login, user } = useAuth();
 
   // Step 1: Identifier input
   const [identifier, setIdentifier] = useState("");
@@ -60,6 +60,24 @@ export default function Login() {
   const [securityQuestion, setSecurityQuestion] = useState("");
   const [securityAnswer, setSecurityAnswer] = useState("");
 
+  // Prime CSRF cookie on mount with a safe GET so POSTs have matching header
+  useEffect(() => {
+    (async () => {
+      try {
+        await apiRequest("GET", "/health");
+      } catch (_) {
+        // No-op: this is best-effort just to set csrf_token cookie
+      }
+    })();
+  }, []);
+
+  // If already authenticated, redirect away from /login
+  useEffect(() => {
+    if (user) {
+      setLocation("/dashboard");
+    }
+  }, [user, setLocation]);
+
   // Randomize challenge type on mount
   useEffect(() => {
     const isMobile = /Mobi|Android/i.test(navigator.userAgent);
@@ -70,11 +88,13 @@ export default function Login() {
   // Collect background metrics (IP, geo, device, etc.)
   useEffect(() => {
     async function collectMetrics() {
-      // Public IP
+      // Public IP via backend (avoids third-party rate limits)
       let ip = "";
       try {
-        const ipRes = await fetch(import.meta.env.VITE_IP_API_URL || "https://api.ipify.org?format=json");
-        ip = (await ipRes.json()).ip;
+        const ipRes = await fetch(`/api/util/ip`, { credentials: "include" });
+        if (ipRes.ok) {
+          ip = (await ipRes.json()).ip || "";
+        }
       } catch {}
       // Geolocation
   let geo: { latitude: number | null; longitude: number | null; accuracy: number | null; fallback: boolean } = { latitude: null, longitude: null, accuracy: null, fallback: true };
@@ -208,11 +228,7 @@ export default function Login() {
 
   // Feedback handler
   const sendFeedback = async (correct: boolean) => {
-    await fetch("/api/auth/feedback", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, risk, correct, reasons: riskReasons, metrics }),
-    });
+    await apiRequest("POST", "/api/auth/feedback", { identifier, risk, correct, reasons: riskReasons, metrics });
     setFeedbackSent(true);
   };
 
@@ -254,7 +270,6 @@ export default function Login() {
         });
       }
     }, [typed]);
-
     // Mouse challenge logic
     useEffect(() => {
       if (type === "mouse" && mousePath.length > 50 && mouseClicks > 2) {
@@ -505,11 +520,7 @@ export default function Login() {
                   setStepupInProgress("context_question");
                   setStepupError(null);
                   // Fetch question from backend
-                  const res = await fetch("/api/auth/context-question", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ identifier })
-                  });
+                  const res = await apiRequest("POST", "/api/auth/context-question", { identifier });
                   const data = await res.json();
                   setSecurityQuestion(data.question);
                   setShowSecurityQuestion(true);
@@ -527,11 +538,7 @@ export default function Login() {
                     language: navigator.language,
                   };
                   // Send to backend
-                  const res = await fetch("/api/auth/ambient-verify", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({ identifier, ambient })
-                  });
+                  const res = await apiRequest("POST", "/api/auth/ambient-verify", { identifier, ambient });
                   const data = await res.json();
                   if (data.success) {
                     toast({ title: "Environment Verified", description: "Ambient authentication successful!" });
@@ -555,11 +562,7 @@ export default function Login() {
                     />
                     <Button onClick={async () => {
                       setStepupError(null);
-                      const res = await fetch("/api/auth/context-answer", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ identifier, answer: securityAnswer })
-                      });
+                      const res = await apiRequest("POST", "/api/auth/context-answer", { identifier, answer: securityAnswer });
                       const data = await res.json();
                       if (data.success) {
                         toast({ title: "Verified", description: "Security question answered correctly!" });

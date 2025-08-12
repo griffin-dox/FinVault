@@ -1,10 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import { Shield, Brain, Smartphone, ArrowRight, CheckCircle, Users, TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 
 export default function Landing() {
+  const { user } = useAuth();
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-white">
       {/* Hero Section */}
@@ -26,17 +28,37 @@ export default function Landing() {
                 behavioral profiling, and passwordless authentication.
               </p>
               <div className="flex flex-col sm:flex-row gap-4">
-                <Link href="/register">
-                  <Button size="lg" className="banking-button-primary">
-                    Get Started Free
-                    <ArrowRight className="ml-2 h-5 w-5" />
-                  </Button>
-                </Link>
-                <Link href="/login">
-                  <Button variant="outline" size="lg" className="banking-button-secondary">
-                    Sign In
-                  </Button>
-                </Link>
+                {user ? (
+                  <>
+                    <Link href="/dashboard">
+                      <Button size="lg" className="banking-button-primary">
+                        Go to Dashboard
+                        <ArrowRight className="ml-2 h-5 w-5" />
+                      </Button>
+                    </Link>
+                    {user.isAdmin && (
+                      <Link href="/admin">
+                        <Button variant="outline" size="lg" className="banking-button-secondary">
+                          Admin Panel
+                        </Button>
+                      </Link>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Link href="/register">
+                      <Button size="lg" className="banking-button-primary">
+                        Get Started Free
+                        <ArrowRight className="ml-2 h-5 w-5" />
+                      </Button>
+                    </Link>
+                    <Link href="/login">
+                      <Button variant="outline" size="lg" className="banking-button-secondary">
+                        Sign In
+                      </Button>
+                    </Link>
+                  </>
+                )}
               </div>
             </motion.div>
             

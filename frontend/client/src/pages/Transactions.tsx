@@ -26,9 +26,13 @@ export default function Transactions() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
 
-  const { data: transactionsData, isLoading } = useQuery({
-    queryKey: ["/api/transaction", { user_id: user?.id }],
-    enabled: !!user?.id,
+  const userId = String(user?.id ?? "");
+  const { data: transactionsData, isLoading } = useQuery<{ transactions: any[] }>({
+    // Use a single-element key with full querystring to avoid path concatenation
+    queryKey: [
+      `/api/transaction?user_id=${encodeURIComponent(userId)}`,
+    ],
+    enabled: !!userId,
   });
 
   const transactions = transactionsData?.transactions || [];

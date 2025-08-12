@@ -35,14 +35,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setIsLoading(false);
   }, []);
 
-  const login = (userData: User) => {
+  const login = (userData: User & { token?: string }) => {
     setUser(userData);
     localStorage.setItem("securebank_user", JSON.stringify(userData));
+    if (userData && (userData as any).token) {
+      try { localStorage.setItem("securebank_token", (userData as any).token); } catch {}
+    }
   };
 
   const logout = () => {
     setUser(null);
     localStorage.removeItem("securebank_user");
+  localStorage.removeItem("securebank_token");
     localStorage.removeItem("securebank_pending_email");
     setLocation("/");
   };
@@ -134,6 +138,34 @@ export function withAdminAuth<T extends object>(Component: React.ComponentType<T
       );
     }
 
+    return <Component {...props} />;
+  };
+}
+
+// Guest-only Route HOC (redirects authenticated users to /dashboard)
+export function withGuest<T extends object>(Component: React.ComponentType<T>) {
+  return function GuestOnlyComponent(props: T) {
+    const { user, isLoading } = useAuth();
+    const [, setLocation] = useLocation();
+
+    useEffect(() => {
+      if (!isLoading && user) {
+        setLocation("/dashboard");
+      }
+    }, [user, isLoading, setLocation]);
+
+    if (isLoading) {
+      return (
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading...</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (user) return null;
     return <Component {...props} />;
   };
 }

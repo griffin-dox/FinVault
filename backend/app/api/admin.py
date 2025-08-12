@@ -15,6 +15,9 @@ from typing import List, Optional
 import json
 import pytz
 from app.models.audit_log import AuditLog
+from app.services.rate_limit import limiter
+from app.services.drift_monitor import run_drift_scan
+from app.middlewares.rbac import require_roles
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -39,16 +42,11 @@ async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
 
-# Dummy get_current_user for illustration; replace with your actual auth dependency
-async def get_current_user(request: Request, db: AsyncSession = Depends(get_db)):
-    # Extract user from JWT/session (replace with your real logic)
-    # For now, just return user with id=1 for demo
-    result = await db.execute(select(User).where(User.id == 1))
-    user = result.scalar_one_or_none()
-    return user
+def get_admin_claims(claims: dict = Depends(require_roles("admin"))):
+    return claims
 
 @router.get("/transactions", response_model=List[dict])
-async def get_transactions(db: AsyncSession = Depends(get_db)):
+async def get_transactions(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(Transaction))
     txns = result.scalars().all()
     return [
@@ -66,8 +64,8 @@ async def get_transactions(db: AsyncSession = Depends(get_db)):
         } for t in txns
     ]
 
-@router.patch("/override", response_model=dict) # Changed response_model to dict as per new schema
-async def override_transaction(data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
+@router.patch("/override", response_model=dict)
+async def override_transaction(data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     transaction_id = data.get("transaction_id")
     action = data.get("action")
 
@@ -93,7 +91,7 @@ async def override_transaction(data: dict, db: AsyncSession = Depends(get_db)): 
     return {"message": f"Transaction {action}d."}
 
 @router.get("/users", response_model=List[UserDetailResponse])
-async def list_users(db: AsyncSession = Depends(get_db)):
+async def list_users(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User))
     users = result.scalars().all()
     return [
@@ -108,7 +106,7 @@ async def list_users(db: AsyncSession = Depends(get_db)):
     ]
 
 @router.get("/users/{user_id}", response_model=UserDetailResponse)
-async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
+async def get_user(user_id: int, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -123,7 +121,7 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db)):
     )
 
 @router.patch("/users/{user_id}", response_model=UserDetailResponse)
-async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
+async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -145,7 +143,7 @@ async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_d
     )
 
 @router.put("/users/{user_id}", response_model=UserDetailResponse)
-async def put_update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
+async def put_update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -166,8 +164,8 @@ async def put_update_user(user_id: int, data: dict, db: AsyncSession = Depends(g
         role=user.role.value
     )
 
-@router.delete("/users/{user_id}", response_model=dict) # Changed response_model to dict
-async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
+@router.delete("/users/{user_id}", response_model=dict)
+async def delete_user(user_id: int, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -176,8 +174,8 @@ async def delete_user(user_id: int, db: AsyncSession = Depends(get_db)):
     await db.commit()
     return {"message": "User deleted."}
 
-@router.put("/transactions/{transaction_id}", response_model=dict) # Changed response_model to dict
-async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSession = Depends(get_db)): # Changed data type to dict
+@router.put("/transactions/{transaction_id}", response_model=dict)
+async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
     if not txn:
@@ -189,19 +187,19 @@ async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSessi
         return {"message": f"Transaction status updated to {status}."}
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing status field.")
 
-@router.get("/risk-rules", response_model=List[dict]) # Changed response_model to List[dict]
-async def get_risk_rules():
+@router.get("/risk-rules", response_model=List[dict])
+async def get_risk_rules(_admin=Depends(get_admin_claims)):
     return [{"rule": k, "value": v} for k, v in risk_rules.items()]
 
-@router.patch("/adjust-risk", response_model=List[dict]) # Changed response_model to List[dict]
-async def adjust_risk_rule(data: AdminRiskRuleUpdateRequest):
+@router.patch("/adjust-risk", response_model=List[dict])
+async def adjust_risk_rule(data: AdminRiskRuleUpdateRequest, _admin=Depends(get_admin_claims)):
     if data.rule not in risk_rules:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid rule.")
     risk_rules[data.rule] = data.value
     return [{"rule": k, "value": v} for k, v in risk_rules.items()]
 
-@router.get("/heatmap-data", response_model=dict) # Changed response_model to dict
-async def get_heatmap_data(db: AsyncSession = Depends(get_db)):
+@router.get("/heatmap-data", response_model=dict)
+async def get_heatmap_data(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     # Aggregate transactions by location and risk
     result = await db.execute(select(Transaction))
     txns = result.scalars().all()
@@ -218,7 +216,7 @@ async def get_heatmap_data(db: AsyncSession = Depends(get_db)):
     return {"data": data}
 
 @router.get("/login-heatmap", response_model=List[dict])
-async def get_login_heatmap(db: AsyncSession = Depends(get_db)):
+async def get_login_heatmap(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     # Aggregate login attempts by location and status
     result = await db.execute(select(AuditLog))
     logs = result.scalars().all()
@@ -240,9 +238,9 @@ async def get_login_heatmap(db: AsyncSession = Depends(get_db)):
 @router.get("/user/heatmap", response_model=List[dict])
 async def get_user_heatmap(
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    claims: dict = Depends(require_roles("user", "admin"))
 ):
-    user_id = current_user.id
+    user_id = claims.get("user_id")
     # Get login events
     login_logs = await db.execute(
         select(AuditLog).where(AuditLog.user_id == user_id, AuditLog.action.like("login_%"))
@@ -465,3 +463,9 @@ async def ping_db(db: AsyncSession = Depends(get_db)):
 @router.get("/api/ping-api", response_model=SystemStatusResponse)
 async def ping_api():
     return SystemStatusResponse(status="ok", message="API is running") 
+
+@router.post("/api/drift-scan", response_model=dict)
+@limiter.limit("2/minute; 20/day")
+async def api_drift_scan(request: Request):
+    result = await run_drift_scan()
+    return result

@@ -1,4 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status, Request
+from app.database import redis_client
+from app.middlewares.session_guardian import enforce_session_risk as session_risk_dep
 from app.schemas.transaction import TransactionRequest, TransactionResponse, TransactionListResponse
 from app.models import User, Transaction, TransactionStatus
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,6 +9,8 @@ from app.database import AsyncSessionLocal, mongo_db, get_db
 from app.services.alert_service import trigger_alert
 from app.services.audit_log_service import log_transaction
 from app.services.risk_engine import score_transaction
+from app.services.rate_limit import limiter
+from app.middlewares.rbac import require_roles
 from datetime import datetime
 import uuid
 from typing import List
@@ -17,17 +21,23 @@ async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
 
+
 @router.post("/", response_model=TransactionResponse)
-async def create_transaction(data: TransactionRequest, db: AsyncSession = Depends(get_db)):
+@limiter.limit("10/minute; 200/hour")
+async def create_transaction(request: Request, data: TransactionRequest, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):
     # Fetch user
+    claims_user_id = claims.get("user_id")
+    if not claims_user_id:
+        raise HTTPException(status_code=401, detail="Invalid token (missing user_id)")
+    # Enforce ownership for non-admins
+    if claims.get("role") != "admin" and data.user_id != claims_user_id:
+        raise HTTPException(status_code=403, detail="Cannot create transactions for another user")
     result = await db.execute(select(User).where(User.id == data.user_id))
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     # Fetch behavior profile from MongoDB
-    profile = mongo_db.behavior_profiles.find_one({"user_id": data.user_id})
-    if profile is None:
-        profile = {}
+    profile = await mongo_db.behavior_profiles.find_one({"user_id": data.user_id}) or {}
     # Score risk
     risk_result = score_transaction(data.dict(), profile)
     # Determine status
@@ -70,15 +80,20 @@ async def create_transaction(data: TransactionRequest, db: AsyncSession = Depend
     )
 
 @router.get("/", response_model=TransactionListResponse)
-async def list_transactions(user_id: int, db: AsyncSession = Depends(get_db)):
+async def list_transactions(user_id: int, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):
+    # Ownership check
+    if claims.get("role") != "admin" and user_id != claims.get("user_id"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     result = await db.execute(select(Transaction).where(Transaction.user_id == user_id))
     transactions = result.scalars().all()
     return TransactionListResponse(transactions=transactions)
 
 @router.get("/{transaction_id}", response_model=TransactionResponse)
-async def get_transaction(transaction_id: int, db: AsyncSession = Depends(get_db)):
+async def get_transaction(transaction_id: int, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):
     result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found.")
+    if claims.get("role") != "admin" and txn.user_id != claims.get("user_id"):
+        raise HTTPException(status_code=403, detail="Forbidden")
     return txn 

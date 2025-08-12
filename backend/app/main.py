@@ -4,9 +4,15 @@ from fastapi.responses import JSONResponse
 from fastapi.exception_handlers import RequestValidationError
 from fastapi.exceptions import HTTPException
 from dotenv import load_dotenv
-from app.database import AsyncSessionLocal, mongo_db, redis_client
-from app.api import auth, transaction, dashboard, admin, behavior_profile
+from app.database import AsyncSessionLocal, mongo_db, redis_client, ensure_mongo_indexes
+from app.api import auth, transaction, dashboard, admin, behavior_profile, geo, util
+from app.api.session_guardian import session_guardian
 from app.security import security_config, validate_environment
+from fastapi import Response
+import secrets
+from app.services.rate_limit import limiter, rate_limit_exceeded_handler
+from slowapi.middleware import SlowAPIMiddleware
+from slowapi.errors import RateLimitExceeded
 
 # Load environment variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../.env'))
@@ -35,12 +41,20 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 # Apply security middleware
 security_config.apply_security_middleware(app)
 
+# Apply rate limiter middleware and handler
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+
 # Include routers
 app.include_router(auth.router, prefix="/api")
 app.include_router(transaction.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(behavior_profile.router, prefix="/api")
+app.include_router(geo.router, prefix="/api")
+app.include_router(session_guardian.router, prefix="/api")
+app.include_router(util.router, prefix="/api")
 
 # Redis connection check endpoint
 @app.get("/redis-check")
@@ -56,7 +70,8 @@ import os
 from fastapi import FastAPI
 from dotenv import load_dotenv
 from app.database import AsyncSessionLocal, mongo_db, redis_client
-from app.api import auth, transaction, dashboard, admin, behavior_profile
+from app.api import auth, transaction, dashboard, admin, behavior_profile, geo
+from app.api.session_guardian import session_guardian
 from app.security import security_config, validate_environment
 
 # Load environment variables
@@ -69,6 +84,9 @@ app = FastAPI(title="FinVault Backend", version="0.1.0")
 
 # Apply security middleware
 security_config.apply_security_middleware(app)
+app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 @app.get("/")
 def root():
@@ -87,22 +105,16 @@ def health_check():
         "mongodb": "connected" if mongo_db is not None else "not configured"
     }
 
-@app.get("/test-cors")
-def test_cors():
-    """Simple endpoint to test CORS configuration"""
-    return {
-        "message": "CORS test successful",
-        "timestamp": "2024-01-01T00:00:00Z",
-        "cors_origins": origins
-    }
-
-@app.post("/test-cors")
-def test_cors_post():
-    """Simple POST endpoint to test CORS configuration"""
-    return {
-        "message": "CORS POST test successful",
-        "timestamp": "2024-01-01T00:00:00Z"
-    }
+@app.get("/csrf-token")
+def get_csrf_token(response: Response):
+    """Issue a CSRF token and set it as a cookie; also echo it in a header for convenience."""
+    token = secrets.token_urlsafe(32)
+    # SameSite=None to support cross-site usage; Secure in prod
+    cookie_kwargs = {"samesite": "none", "path": "/"}
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        cookie_kwargs["secure"] = True
+    response.set_cookie("csrf_token", token, **cookie_kwargs)
+    return JSONResponse({"csrf": token}, headers={"X-CSRF-Token": token})
 
 # Include routers
 app.include_router(auth.router, prefix="/api")
@@ -110,3 +122,14 @@ app.include_router(transaction.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 app.include_router(behavior_profile.router, prefix="/api")
+app.include_router(geo.router, prefix="/api")
+app.include_router(session_guardian.router, prefix="/api")
+app.include_router(util.router, prefix="/api")
+
+@app.on_event("startup")
+async def on_startup():
+    # Ensure Mongo indexes exist (TTL etc.)
+    try:
+        await ensure_mongo_indexes()
+    except Exception as e:
+        print(f"[Startup] Mongo index init failed: {e}")

@@ -1,41 +1,46 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { apiRequest } from "@/lib/queryClient";
 
-export default function AdditionalVerification({ identifier }: { identifier: string }) {
+function useQueryParam(name: string): string | null {
+  return useMemo(() => {
+    if (typeof window === "undefined") return null;
+    const params = new URLSearchParams(window.location.search);
+    return params.get(name);
+  }, [name]);
+}
+
+export default function AdditionalVerification() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { login } = useAuth();
+  const identifier = useQueryParam("identifier") || "";
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState("");
   const [ambientResult, setAmbientResult] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Fetch security question on mount
-  useState(() => {
-    fetch("/api/auth/context-question", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier })
-    })
+  useEffect(() => {
+    if (!identifier) return;
+    apiRequest("POST", "/api/auth/context-question", { identifier })
       .then(res => res.json())
       .then(data => setQuestion(data.question));
-  });
+  }, [identifier]);
 
   const submitAnswer = async () => {
     setError(null);
-    const res = await fetch("/api/auth/context-answer", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, answer })
-    });
+  const res = await apiRequest("POST", "/api/auth/context-answer", { identifier, answer });
     const data = await res.json();
-    if (data.success && data.risk === "low") {
+    if (data.success) {
+      if (data.user) {
+        try { login({ ...data.user, token: data.token }); } catch {}
+      }
       toast({ title: "Verified", description: "Security question answered correctly!" });
       setLocation("/dashboard");
-    } else if (data.success) {
-      toast({ title: "Verified", description: "Verification passed, but risk is not low. Access denied." });
-      setError("Access denied: risk is not low.");
     } else {
       setError(data.message || "Incorrect answer");
     }
@@ -49,19 +54,15 @@ export default function AdditionalVerification({ identifier }: { identifier: str
       orientation: window.screen.orientation?.type || "unknown",
       language: navigator.language,
     };
-    const res = await fetch("/api/auth/ambient-verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ identifier, ambient })
-    });
+  const res = await apiRequest("POST", "/api/auth/ambient-verify", { identifier, ambient });
     const data = await res.json();
-    if (data.success && data.risk === "low") {
+    if (data.success) {
+      if (data.user) {
+        try { login({ ...data.user, token: data.token }); } catch {}
+      }
       setAmbientResult("Ambient authentication successful!");
       toast({ title: "Environment Verified", description: "Ambient authentication successful!" });
       setLocation("/dashboard");
-    } else if (data.success) {
-      toast({ title: "Verified", description: "Verification passed, but risk is not low. Access denied." });
-      setError("Access denied: risk is not low.");
     } else {
       setError(data.message || "Ambient authentication failed");
     }

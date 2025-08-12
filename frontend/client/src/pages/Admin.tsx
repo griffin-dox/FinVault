@@ -63,7 +63,7 @@ function AdminRiskHeatmap({ open, onClose }: { open: boolean; onClose: () => voi
   const [data, setData] = useState<RiskHeatmapDatum[]>([]);
   useEffect(() => {
     if (open) {
-      fetch("/admin/risk-heatmap").then(res => res.json()).then(setData);
+      apiRequest("GET", "/admin/risk-heatmap").then(res => res.json()).then(setData).catch(() => setData([]));
     }
   }, [open]);
   // Color scale: 0=green, 1=yellow, 2=red
@@ -166,7 +166,7 @@ export default function Admin() {
       setServiceStatuses(s => [ s[0], s[1], 'loading', ...s.slice(3) ]);
       let dbOk = false;
       try {
-        const resp = await fetch('/api/ping-db');
+        const resp = await apiRequest('GET', '/api/ping-db');
         dbOk = resp.ok;
       } catch {}
       setServiceStatuses(s => [ s[0], s[1], dbOk ? 'green' : 'red', ...s.slice(3) ]);
@@ -174,7 +174,7 @@ export default function Admin() {
       setServiceStatuses(s => [ s[0], s[1], s[2], 'loading', s[4] ]);
       let apiOk = false;
       try {
-        const resp = await fetch('/api/ping-api');
+        const resp = await apiRequest('GET', '/api/ping-api');
         apiOk = resp.ok;
       } catch {}
       setServiceStatuses(s => [ s[0], s[1], s[2], apiOk ? 'green' : 'red', s[4] ]);
@@ -189,7 +189,7 @@ export default function Admin() {
 
   // Fetch risk rules on mount
   useEffect(() => {
-    fetch("/api/admin/risk-rules")
+  apiRequest("GET", "/api/admin/risk-rules")
       .then(res => res.json())
       .then(data => {
         const rules = data.rules || [];
@@ -206,16 +206,8 @@ export default function Admin() {
   // Save settings handler
   const saveSettings = async () => {
     try {
-      await fetch("/api/admin/adjust-risk", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rule: "high_threshold", value: autoBlockThreshold[0] })
-      });
-      await fetch("/api/admin/adjust-risk", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rule: "medium_threshold", value: riskThreshold[0] })
-      });
+  await apiRequest("PATCH", "/api/admin/adjust-risk", { rule: "high_threshold", value: autoBlockThreshold[0] });
+  await apiRequest("PATCH", "/api/admin/adjust-risk", { rule: "medium_threshold", value: riskThreshold[0] });
       toast({ title: "Settings saved successfully" });
     } catch {
       toast({ title: "Failed to save settings", variant: "destructive" });

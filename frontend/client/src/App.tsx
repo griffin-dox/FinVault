@@ -14,8 +14,9 @@ import Transactions from "@/pages/Transactions";
 import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import HealthCheckPage from "@/pages/HealthCheck";
+import AdditionalVerification from "@/pages/AdditionalVerification";
 import Navbar from "@/components/Navbar";
-import { AuthProvider, withAuth, withAdminAuth } from "@/hooks/use-auth";
+import { AuthProvider, withAuth, withAdminAuth, withGuest } from "@/hooks/use-auth";
 
 function AppRouter() {
   return (
@@ -24,10 +25,11 @@ function AppRouter() {
       <main className="pt-16 min-h-screen">
         <Switch>
           <Route path="/" component={Landing} />
-          <Route path="/register" component={Register} />
+          <Route path="/register" component={withGuest(Register)} />
           <Route path="/verify-email" component={VerifyEmail} />
-          <Route path="/onboarding" component={Onboarding} />
-          <Route path="/login" component={Login} />
+          <Route path="/onboarding" component={withAuth(Onboarding)} />
+          <Route path="/login" component={withGuest(Login)} />
+          <Route path="/additional-verification" component={withGuest(AdditionalVerification)} />
           <Route path="/dashboard" component={withAuth(Dashboard)} />
           <Route path="/transactions" component={withAuth(Transactions)} />
           <Route path="/admin" component={withAdminAuth(Admin)} />

@@ -342,12 +342,11 @@ export default function Onboarding() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-      const email = localStorage.getItem("securebank_pending_email");
-      if (!email) throw new Error("No pending registration found");
+  const email = localStorage.getItem("securebank_pending_email");
+  if (!email) throw new Error("No pending registration found");
       const { verification_status, risk_level } = getVerificationStatusAndRisk();
       // POST behavioral profile to backend
       const response = await apiRequest("POST", "/api/behavior-profile", {
-        user_id: email, // or userId if available
         typing_pattern: behavioralData.typingAnalysis,
         mouse_dynamics: behavioralData.mouseMovement,
         device_fingerprint: deviceInfo,

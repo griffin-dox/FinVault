@@ -24,6 +24,7 @@ import { useEffect, useState } from "react";
 import { formatAmountByCountry } from "@/lib/api";
 import { MapContainer, TileLayer, CircleMarker, Tooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { apiRequest } from "@/lib/queryClient";
 import { Table, TableHead, TableRow, TableHeader, TableBody, TableCell } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
@@ -35,11 +36,11 @@ const EVENT_COLORS = {
 };
 
 // Add types for events and devices
-interface HeatmapEvent {
-  type: keyof typeof EVENT_COLORS;
-  location: string;
-  status?: string;
-  timestamp?: string | number;
+interface HeatmapTile {
+  tile_lat: number;
+  tile_lon: number;
+  count: number;
+  avgAcc?: number;
 }
 
 interface Device {
@@ -59,28 +60,26 @@ interface Transaction {
 }
 
 function Heatmap() {
-  const [events, setEvents] = useState<HeatmapEvent[]>([]);
-  const [visibleTypes, setVisibleTypes] = useState<Record<keyof typeof EVENT_COLORS, boolean>>({
-    login_success: true,
-    login_failure: true,
-    transaction_allowed: true,
-    transaction_blocked: true,
-  });
+  const { user } = useAuth();
+  const [tiles, setTiles] = useState<HeatmapTile[]>([]);
+  const [days, setDays] = useState(90);
   useEffect(() => {
-    fetch("/admin/user/heatmap")
-      .then((res) => res.json())
-      .then((data) => setEvents(Array.isArray(data) ? data : []));
-  }, []);
-  // Type guard for HeatmapEvent
-  function isHeatmapEvent(e: any): e is HeatmapEvent {
-    return e && typeof e === 'object' && typeof e.type === 'string' && typeof e.location === 'string';
-  }
-  // Filter events by toggles
-  const filtered = events.filter(isHeatmapEvent).filter((e) => visibleTypes[e.type]);
+    let cancelled = false;
+    async function load() {
+      if (!user?.id) return;
+      try {
+        const res = await apiRequest("GET", `/api/geo/users/${user.id}/heatmap?days=${days}`);
+        const json = await res.json();
+        if (!cancelled) setTiles(Array.isArray(json.tiles) ? json.tiles : []);
+      } catch {
+        if (!cancelled) setTiles([]);
+      }
+    }
+    load();
+    return () => { cancelled = true; };
+  }, [user?.id, days]);
   // Compute bounds
-  const latlngs = filtered
-    .map((e) => e.location.split(",").map(Number))
-    .filter((coords): coords is [number, number] => Array.isArray(coords) && coords.length === 2 && !isNaN(coords[0]) && !isNaN(coords[1]));
+  const latlngs = tiles.map(t => [t.tile_lat, t.tile_lon] as [number, number]).filter(([a,b]) => !isNaN(a) && !isNaN(b));
   const bounds: [[number, number], [number, number]] = latlngs.length
     ? latlngs.reduce<[[number, number], [number, number]]>(
         (acc, cur) => [
@@ -92,24 +91,14 @@ function Heatmap() {
     : [
         [20.5937, 78.9629],
         [20.5937, 78.9629],
-      ]; // Default: India
+      ]; // Default fallback
   return (
     <div>
-      <div style={{ marginBottom: 8 }}>
-        {Object.entries(EVENT_COLORS).map(([type, color]) => (
-          <label key={type} style={{ marginRight: 16 }}>
-            <input
-              type="checkbox"
-              checked={visibleTypes[type as keyof typeof EVENT_COLORS]}
-              onChange={() =>
-                setVisibleTypes((v) => ({ ...v, [type as keyof typeof EVENT_COLORS]: !v[type as keyof typeof EVENT_COLORS] }))
-              }
-            />
-            <span style={{ color, fontWeight: "bold", marginLeft: 4 }}>
-              {type.replace("_", " ")}
-            </span>
-          </label>
-        ))}
+      <div className="flex items-center gap-3 mb-3">
+        <span className="text-sm text-gray-600">Window:</span>
+        <Button size="sm" variant={days===30?"default":"outline"} onClick={() => setDays(30)}>30d</Button>
+        <Button size="sm" variant={days===90?"default":"outline"} onClick={() => setDays(90)}>90d</Button>
+        <Button size="sm" variant={days===180?"default":"outline"} onClick={() => setDays(180)}>180d</Button>
       </div>
       <MapContainer
         style={{ height: 400, width: "100%" }}
@@ -121,32 +110,22 @@ function Heatmap() {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution="&copy; OpenStreetMap contributors"
         />
-        {filtered.map((e, i) => {
-          const [lat, lon] = e.location.split(",").map(Number);
-          if (isNaN(lat) || isNaN(lon)) return null;
-          return (
-            <CircleMarker
-              key={i}
-              center={[lat, lon]}
-              radius={8}
-              color={EVENT_COLORS[e.type] || "gray"}
-              fillOpacity={0.7}
-            >
-              <Tooltip>
-                <div>
-                  <div>Type: {e.type.replace("_", " ")}</div>
-                  <div>Status: {e.status || "-"}</div>
-                  <div>
-                    {e.timestamp ? new Date(e.timestamp).toLocaleString(undefined, {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    }) : "-"}
-                  </div>
-                </div>
-              </Tooltip>
-            </CircleMarker>
-          );
-        })}
+        {tiles.map((t, i) => (
+          <CircleMarker
+            key={i}
+            center={[t.tile_lat, t.tile_lon]}
+            radius={6 + Math.log(t.count + 1) * 2}
+            color={t.avgAcc && t.avgAcc > 500 ? "orange" : "#2563eb"}
+            fillOpacity={0.6}
+          >
+            <Tooltip>
+              <div>
+                <div>Events: {t.count}</div>
+                {typeof t.avgAcc === 'number' && <div>Avg accuracy: {t.avgAcc.toFixed(0)}m</div>}
+              </div>
+            </Tooltip>
+          </CircleMarker>
+        ))}
       </MapContainer>
     </div>
   );
@@ -166,7 +145,7 @@ function DeviceManagement() {
       setLoading(true);
       setError(null);
       try {
-        const res = await fetch("/api/auth/webauthn/devices", { credentials: "include" });
+  const res = await apiRequest("GET", "/api/auth/webauthn/devices");
         if (!res.ok) {
           // Try to parse error as JSON, fallback to text
           let errorMsg = "Failed to fetch devices";
@@ -193,12 +172,7 @@ function DeviceManagement() {
     setRemoveId(id);
     setRemoving(true);
     try {
-      const res = await fetch("/api/auth/webauthn/device/remove", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ credential_id: id })
-      });
+  const res = await apiRequest("POST", "/api/auth/webauthn/device/remove", { credential_id: id });
       if (!res.ok) throw new Error("Failed to remove device");
       setDevices(devices.filter(d => d.credential_id !== id));
       setShowDialog(false);
@@ -268,7 +242,7 @@ export default function Dashboard() {
   const [showHeatmap, setShowHeatmap] = useState(false);
 
   const { data: transactionsData = { transactions: [] } } = useQuery<{ transactions: Transaction[] }>({
-    queryKey: ["/api/transaction", { user_id: user?.id }],
+    queryKey: ["/api/transaction", String(user?.id ?? "")],
     enabled: !!user?.id,
   });
   const transactions = transactionsData.transactions;
@@ -480,6 +454,18 @@ export default function Dashboard() {
                           <span className="text-sm font-medium">Settings</span>
                         </Button>
                         
+                        {user?.isAdmin && (
+                          <Link href="/admin">
+                            <Button
+                              variant="outline"
+                              className="p-4 h-auto flex-col space-y-2 hover:border-primary hover:bg-primary/5 w-full"
+                            >
+                              <Shield className="h-6 w-6 text-primary" />
+                              <span className="text-sm font-medium">Admin Panel</span>
+                            </Button>
+                          </Link>
+                        )}
+
                         <Button
                           variant="outline"
                           className="p-4 h-auto flex-col space-y-2 hover:border-primary hover:bg-primary/5"

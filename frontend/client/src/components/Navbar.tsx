@@ -11,6 +11,7 @@ export default function Navbar() {
   const { user, logout } = useAuth();
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const onLanding = location === "/";
 
   const isActive = (path: string) => location === path;
 
@@ -52,7 +53,7 @@ export default function Navbar() {
                 </button>
               </Link>
             ))}
-            
+  
             {/* Health Indicator */}
             <HealthIndicator showDetailsOnClick={true} />
           </div>
@@ -92,16 +93,20 @@ export default function Navbar() {
               </div>
             ) : (
               <div className="flex items-center space-x-2">
-                <Link href="/login">
-                  <Button variant="ghost" size="sm">
-                    Login
-                  </Button>
-                </Link>
-                <Link href="/register">
-                  <Button size="sm" className="banking-button-primary">
-                    Register
-                  </Button>
-                </Link>
+                {!onLanding && (
+                  <>
+                    <Link href="/login">
+                      <Button variant="ghost" size="sm">
+                        Login
+                      </Button>
+                    </Link>
+                    <Link href="/register">
+                      <Button size="sm" className="banking-button-primary">
+                        Register
+                      </Button>
+                    </Link>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -190,25 +195,29 @@ export default function Navbar() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <Link href="/login">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full justify-start"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                      >
-                        Login
-                      </Button>
-                    </Link>
-                    <Link href="/register">
-                      <Button
-                        size="sm"
-                        className="w-full banking-button-primary"
-                        onClick={() => setIsMobileMenuOpen(false)}
-                      >
-                        Register
-                      </Button>
-                    </Link>
+                    {!onLanding && (
+                      <>
+                        <Link href="/login">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="w-full justify-start"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                          >
+                            Login
+                          </Button>
+                        </Link>
+                        <Link href="/register">
+                          <Button
+                            size="sm"
+                            className="w-full banking-button-primary"
+                            onClick={() => setIsMobileMenuOpen(false)}
+                          >
+                            Register
+                          </Button>
+                        </Link>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

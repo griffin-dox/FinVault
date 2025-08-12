@@ -2,6 +2,7 @@ import os
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import ASCENDING
 import redis.asyncio as redis
 from dotenv import load_dotenv
 
@@ -42,3 +43,29 @@ async def get_db():
             yield session
     else:
         yield None 
+
+# Mongo index setup (TTL + performance)
+async def ensure_mongo_indexes():
+    # Motor Database objects do not implement truthiness; compare with None explicitly
+    if mongo_db is None:
+        return
+    try:
+        # TTL for raw geo events: 30 days
+        await mongo_db.geo_events.create_index(
+            [("ts", ASCENDING)], expireAfterSeconds=30 * 24 * 3600
+        )
+        # Supporting indexes for user-based queries and grouping
+        await mongo_db.geo_events.create_index([("user_id", ASCENDING)])
+        await mongo_db.geo_events.create_index([("tile_lat", ASCENDING), ("tile_lon", ASCENDING)])
+
+        # Aggregated tiles collection: keep 180 days
+        await mongo_db.geo_tiles_agg.create_index(
+            [("last_seen", ASCENDING)], expireAfterSeconds=180 * 24 * 3600
+        )
+        # Unique per user/tile key for merge/update semantics
+        await mongo_db.geo_tiles_agg.create_index(
+            [("user_id", ASCENDING), ("tile_lat", ASCENDING), ("tile_lon", ASCENDING)], unique=True
+        )
+    except Exception as e:
+        # Log silently to avoid crashing startup
+        print(f"[MongoIndexes] Failed to ensure indexes: {e}")

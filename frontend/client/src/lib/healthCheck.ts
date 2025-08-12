@@ -1,3 +1,4 @@
+import { apiRequest } from "@/lib/queryClient";
 export interface HealthStatus {
   backend: 'healthy' | 'unhealthy' | 'checking' | 'unknown';
   postgresql: 'healthy' | 'unhealthy' | 'checking' | 'unknown';
@@ -69,14 +70,15 @@ class HealthCheckService {
 
     try {
       // Check backend health endpoint
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
       const response = await fetch(`${this.backendUrl}/health`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        // 10 second timeout for backend check
-        signal: AbortSignal.timeout(10000)
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        signal: controller.signal
       });
+      clearTimeout(timeout);
 
       if (response.ok) {
         const healthData: HealthResponse = await response.json();
