@@ -1,98 +1,99 @@
 # FinVault
 
-FinVault is a secure, AI-powered banking MVP featuring passwordless authentication (magic link, behavioral biometrics), real-time risk scoring, fraud analytics, and admin override. Data flows from frontend (React) to backend (FastAPI) via REST API, with risk analysis and fraud detection at transaction time.
+FinVault is a secure, AI-powered banking MVP with passwordless auth (magic link, WebAuthn, behavioral biometrics), real-time risk scoring, fraud analytics, and RBAC. The React SPA talks to a FastAPI backend via REST with CSRF-protected, cookie/Bearer-auth sessions.
 
 ---
 
 ## Architecture
 
-**Backend:**
+Backend (FastAPI):
 
-- FastAPI app (`backend/app/main.py`) with modular routers (`auth`, `admin`, `dashboard`, `transaction`)
-- Security middleware and environment validation on startup
-- Async DB: PostgreSQL (SQLAlchemy), MongoDB (Motor), Redis
-- Celery for async tasks (email, alerts)
-- Risk engine (`app/services/risk_engine.py`) for transaction scoring
-- RBAC middleware (`app/middlewares/rbac.py`) for role-based access
+- Modular routers: `auth`, `transaction`, `dashboard`, `admin`, `behavior_profile`, `geo`, `util`
+- Security middleware: CORS, CSRF (double-submit), security headers, trusted hosts, rate limiting
+- Datastores: PostgreSQL (SQLAlchemy async), MongoDB (Motor), Redis
+- Risk engine: `app/services/risk_engine.py` for login and transaction scoring
+- RBAC middleware: `app/middlewares/rbac.py`
 
-**Frontend:**
+Frontend (React/Vite/TS):
 
-- React/TypeScript app (`frontend/client/src/`)
-- Custom hooks for authentication, device info, typing biometrics (`src/hooks/`)
-- Shared schemas/types (`shared/schema.ts`)
-- Tailwind CSS for styling
+- Query client with CSRF acquisition and credentials=include
+- Authorization header fallback from stored token
+- Host fallback (localhost ↔ 127.0.0.1) to smooth local dev
+- Shared schemas in `frontend/client/shared/schema.ts`
+
+---
+
+## Key Behaviors
+
+- Step-up policy: If the user passes additional verification (context/ambient), grant session and set risk=low.
+- Learning policy: Active learning only on successful logins (low-risk direct, or successful step-up). No learning from medium/high risk or failed step-ups.
+- IP enrichment: Backend extracts client IP from headers and `request.client`; `/api/util/ip` provided for optional client-side.
+- Cookies: `access_token` is HttpOnly; `csrf_token` is readable cookie. SameSite=None in production; Secure in production.
 
 ---
 
 ## Quickstart
 
-### 1. Clone the repo
+1. Clone
 
 ```bash
 git clone <repo-url>
 cd FinVault
 ```
 
-### 2. Setup Backend
+2. Backend (env + run)
 
-cp .env.example .env # Edit with your secrets
-uvicorn app.main:app --reload
-
-````bash
-cd frontend/client
 ```bash
-npm run dev:frontend
-npm run dev:all
-````
+cd backend
+cp .env.example .env   # fill in JWT_SECRET (>=32 chars), URIs, etc.
+uvicorn app.main:app --reload
+```
 
-## Environment Variables
+3. Frontend (dev)
 
-- See `.env.example` in both `backend/` and `frontend/client/` for required variables.
-
----
-
-- Data models: update in `app/models/`
-
-- Shared types: update in `shared/schema.ts`
-
-- PostgreSQL, MongoDB Atlas, Redis, SMTP (email)
+```bash
+cd frontend/client
+npm install
+npm run dev
+```
 
 ---
 
-- Put business logic in `app/services/`
-- Use Pydantic schemas for validation (`app/schemas/`)
-- Use Celery for async/background tasks
+## Production
 
-**Don't:**
-
-- Mix business logic with API routers
-- Hardcode secrets or config
-- Skip risk scoring for transactions
-- Bypass RBAC middleware for protected routes
-- Commit test data or credentials
+- Frontend uses API base: `https://finvault-g6r7.onrender.com` in production builds.
+- Backend ENV:
+  - `ENVIRONMENT=production`
+  - `COOKIE_SECURE=1`
+  - `JWT_SECRET` (>=32 chars), `POSTGRES_URI`, `MONGODB_URI`, `REDIS_URI`
+- CORS allows `https://securebank-lcz1.onrender.com` and `https://finvault-g6r7.onrender.com`; credentials enabled.
+- CSRF: Call `GET /csrf-token` to receive a `csrf_token` cookie and header; send `X-CSRF-Token` on unsafe methods.
 
 ---
 
-## To-Do List
+## Developer Notes
 
-- Add/clarify test strategy and files
-- Expand documentation (API, onboarding, security)
-- Harden security (JWT, CORS, secrets)
-- Add more behavioral analytics and fraud detection
-- Improve error handling and logging
-- Document custom hooks and shared schemas
+- Business logic in `app/services/`; request validation in `app/schemas/`.
+- Don’t bypass risk scoring or RBAC on protected routes.
+- Never hardcode secrets; use `.env` (local) and platform env vars (prod).
 
 ---
 
-## Linting & Formatting
+## Lint & Format
 
-- Python: `black`, `flake8`
-- JS/TS: `eslint`, `prettier`
-- Pre-commit hooks auto-format and lint code before commit.
+- Python: black, flake8
+- JS/TS: eslint, prettier
 
 ---
 
-## Contributing
+## Roadmap
 
-- See `CONTRIBUTING.md` (coming soon)
-- PRs welcome!
+- Tests and CI setup
+- More behavioral analytics and fraud signals
+- Improved logging/observability and error taxonomy
+
+---
+
+## Docs
+
+See `docs/` for deployment, security, health checks, and cleanup.

@@ -1,82 +1,72 @@
 # FinVault Backend
 
-## Overview
-
-This is the backend for the FinVault secure, AI-enhanced passwordless banking MVP. It uses FastAPI, PostgreSQL, MongoDB Atlas, and Redis.
+FastAPI backend for FinVault with passwordless auth, risk scoring, RBAC, and hardened security middleware.
 
 ## Features
 
-- Passwordless authentication (magic link, behavioral biometrics)
-- Transaction risk scoring and fraud detection
-- Admin override and user management
+- Passwordless auth: magic link, WebAuthn, behavioral step-up
+- Login/transaction risk scoring (low ≤ 40, medium 41–60, high > 60)
+- Step-up policy: successful verification grants session with risk=low
+- Active learning only from successful logins (no learning from medium/high or failed step-ups)
+- Security: CORS, CSRF (double-submit), security headers, trusted hosts, rate limits
+- Stores behavior profiles and telemetry in MongoDB (with retention for geo tiles)
 
-## Tech Stack
+## Setup
 
-- FastAPI
-- PostgreSQL (SQLAlchemy ORM)
-  Backend for FinVault: secure, AI-powered passwordless banking MVP. Built with FastAPI, PostgreSQL, MongoDB Atlas, Redis, and Celery.
-- Redis (redis-py, Celery)
-- Pydantic
-  Real-time risk scoring (low ≤ 40, medium 41–60, high > 60)
-  Device management (WebAuthn, device trust)
-  Global JSON error handling
-  RBAC middleware for role-based access
+1. Create and activate venv
 
-### 1. Clone the repository
-
-````bash
 ```bash
-python -m venv env
-source env/bin/activate  # On Windows: env\Scripts\activate
-````
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+source venv/bin/activate
+```
 
-### 3. Install dependencies
+2. Install dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 4. Configure environment variables
-
-Create a `.env` file in the `backend/` directory with the following:
+3. Configure environment (.env in backend/)
 
 ```
+ENVIRONMENT=development
 POSTGRES_URI=postgresql+asyncpg://user:password@host:port/dbname
 MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/dbname
-JWT_SECRET=your_jwt_secret
-REDIS_URL=redis://localhost:6379/0
-EMAIL_SENDER=your@email.com
-EMAIL_PASSWORD=yourpassword
+REDIS_URI=redis://localhost:6379/0
+JWT_SECRET=replace-with-32+chars
+COOKIE_SECURE=0
 ```
 
-### 5. Run the backend server
+4. Run
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-### 6. Run Celery worker (for async tasks)
+## Production Notes
 
-```bash
-celery -A app.services.email_service worker --loglevel=info
-```
+- Set `ENVIRONMENT=production` and `COOKIE_SECURE=1`.
+- CORS allows `https://securebank-lcz1.onrender.com` and `https://finvault-g6r7.onrender.com`.
+- CSRF cookie `csrf_token` is SameSite=None and Secure (prod); send `X-CSRF-Token` header on unsafe methods.
 
-## API Documentation
+## API Docs
 
-Once running, visit [http://localhost:8000/docs](http://localhost:8000/docs) for Swagger UI.
+Swagger: http://localhost:8000/docs
 
----
-
-## Directory Structure
+## Structure
 
 ```
 backend/
 ├── app/
 │   ├── main.py
- Swagger UI: [http://localhost:8000/docs](http://localhost:8000/docs)
+│   ├── security.py
+│   ├── api/
+│   ├── middlewares/
 │   ├── models/
 │   ├── schemas/
-├── .env
-├── .gitignore
+│   └── services/
 └── README.md
 ```
