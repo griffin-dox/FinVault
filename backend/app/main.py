@@ -58,14 +58,16 @@ def health_check():
     }
 
 @app.get("/csrf-token")
-def get_csrf_token(response: Response):
-    """Issue a CSRF token and set it as a cookie; also echo it in a header for convenience."""
+def get_csrf_token():
+    """Issue a CSRF token and return it with Set-Cookie and X-CSRF-Token on the SAME response."""
     token = secrets.token_urlsafe(32)
     cookie_kwargs = {"samesite": "none", "path": "/"}
     if os.getenv("ENVIRONMENT", "development").lower() == "production":
         cookie_kwargs["secure"] = True
-    response.set_cookie("csrf_token", token, **cookie_kwargs)
-    return JSONResponse({"csrf": token}, headers={"X-CSRF-Token": token})
+    resp = JSONResponse({"csrf": token})
+    resp.set_cookie("csrf_token", token, **cookie_kwargs)
+    resp.headers["X-CSRF-Token"] = token
+    return resp
 
 ENV = os.getenv("ENVIRONMENT", "development").lower()
 if ENV != "production":

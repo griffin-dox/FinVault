@@ -224,8 +224,12 @@ class CsrfMiddleware:
                     return await send({"type": "http.response.body", "body": body})
                 return await self.app(scope, receive, send)
 
-        # For safe methods, if cookie missing, set it
+        # For safe methods, if cookie missing, set it (except on the dedicated /csrf-token endpoint
+        # which explicitly sets and returns a token to avoid double-setting mismatches)
         if not csrf_cookie and method in ("GET", "HEAD"):
+            path = scope.get("path", "")
+            if path == "/csrf-token":
+                return await self.app(scope, receive, send)
             import secrets
             new_token = secrets.token_urlsafe(32)
             return await self.app(scope, receive, wrap_send_set_cookie(send))
