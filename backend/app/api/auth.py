@@ -104,6 +104,8 @@ async def context_answer(request: Request, data: dict, db: AsyncSession = Depend
                     max_age=3600,
                     path="/"
                 )
+                # Mirror CSRF token in header so cross-site frontend can sync header value
+                response.headers["X-CSRF-Token"] = csrf_token
         except Exception as _ce:
             print(f"[STEPUP][context-answer] Cookie set error: {_ce}")
         # Audit success as login success after step-up
@@ -248,6 +250,8 @@ async def ambient_verify(request: Request, data: dict, db: AsyncSession = Depend
                     max_age=3600,
                     path="/"
                 )
+                # Mirror CSRF token in header so cross-site frontend can sync header value
+                response.headers["X-CSRF-Token"] = csrf_token
         except Exception as _ce:
             print(f"[STEPUP][ambient-verify] Cookie set error: {_ce}")
         try:
@@ -772,6 +776,8 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
                         max_age=3600,
                         path="/"
                     )
+                    # Mirror CSRF token in header so cross-site frontend can sync header value
+                    response.headers["X-CSRF-Token"] = csrf_token
             except Exception as _ce:
                 print(f"[LOGIN] Cookie set error: {_ce}")
             print(f"[LOGIN] Login successful for user {user.id}")
