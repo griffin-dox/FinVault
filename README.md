@@ -27,7 +27,10 @@ Frontend (React/Vite/TS):
 
 - Step-up policy: If the user passes additional verification (context/ambient), grant session and set risk=low.
 - Learning policy: Active learning only on successful logins (low-risk direct, or successful step-up). No learning from medium/high risk or failed step-ups.
-- IP enrichment: Backend extracts client IP from headers and `request.client`; `/api/util/ip` provided for optional client-side.
+- IP enrichment: Backend extracts client IP from headers and `request.client`.
+  - Local GeoIP enrichment via MaxMind mmdb (ASN + City) with Redis caching
+  - Privacy: precise lat/lon from IP are not stored (only city/region/country)
+  - Carrier ASN-aware IP weighting and city-level fallback in risk scoring
 - Cookies: `access_token` is HttpOnly; `csrf_token` is readable cookie. SameSite=None in production; Secure in production.
 
 ---
@@ -66,6 +69,8 @@ npm run dev
   - `ENVIRONMENT=production`
   - `COOKIE_SECURE=1`
   - `JWT_SECRET` (>=32 chars), `POSTGRES_URI`, `MONGODB_URI`, `REDIS_URI`
+  - GeoIP: place `GeoLite2-ASN.mmdb` and `GeoLite2-City.mmdb` under `data/` or `backend/data/`
+  - Risk tuning: `CARRIER_ASN_LIST`, `KNOWN_NETWORK_PROMOTION_THRESHOLD`, `KNOWN_NETWORK_DECAY_DAYS`, `GEOIP_CACHE_TTL_SEC`
 - CORS allows `https://securebank-lcz1.onrender.com` and `https://finvault-g6r7.onrender.com`; credentials enabled.
 - CSRF: Call `GET /csrf-token` to receive a `csrf_token` cookie and header; send `X-CSRF-Token` on unsafe methods.
 
@@ -76,6 +81,18 @@ npm run dev
 - Business logic in `app/services/`; request validation in `app/schemas/`.
 - Don’t bypass risk scoring or RBAC on protected routes.
 - Never hardcode secrets; use `.env` (local) and platform env vars (prod).
+
+Docs quick links
+
+- Configuration: `docs/CONFIG.md`
+- API surface: `docs/API.md`
+- Risk engine details: `docs/RISK_ENGINE.md`
+- Telemetry & analytics: `docs/TELEMETRY.md`
+- Security: `docs/SECURITY.md`
+- Deployment: `docs/DEPLOYMENT.md`
+- Operations: `docs/OPERATIONS.md`
+- Testing strategy: `docs/TESTING.md`
+- Contributing: `CONTRIBUTING.md`
 
 ---
 

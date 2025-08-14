@@ -1,6 +1,6 @@
 # FinVault – Comprehensive Progress Report
 
-Date: 2025-08-13
+Date: 2025-08-14
 
 This report documents the current state of the FinVault project end-to-end, for both technical and non-technical stakeholders. It serves as the main project doc and as an ongoing progress report.
 
@@ -81,13 +81,32 @@ flowchart LR
 
 ## Recent Changes & Achievements
 
+- Risk engine
+  - Added ASN-aware IP weighting with `CARRIER_ASN_LIST` (down-weights carrier/mobile networks)
+  - Implemented city-level IP geo fallback when browser geolocation is missing or low-accuracy (>500m)
+  - Mirrored ASN/city fallback logic in session scoring
+  - Improved device comparison tolerance (browser brand+major, OS family, screen ±100px)
+- Telemetry & GeoIP
+  - Local MaxMind GeoLite2 (ASN + City) enrichment with auto-detection from `data/` or `backend/data/`
+  - Redis caching for IP enrichment (`GEOIP_CACHE_TTL_SEC`) to reduce mmdb reads
+  - Privacy hardening: do not store IP lat/lon; store only city/region/country (+ISO)
+  - IP extraction precedence from proxy headers; device/IP upsert and linking
+  - Known-network tracking via per-user prefix/day counters; promotion/demotion with env thresholds
+- Analytics
+  - New endpoints: `GET /telemetry/known-networks/summary` and `GET /telemetry/known-networks/decay-report`
+- Docs & DX
+  - Added/updated docs (README, CONFIG, RISK_ENGINE, TELEMETRY, API, TESTING, OPERATIONS, CONTRIBUTING)
+  - Added `backend/.env.example`
+- Fixes
+  - Corrected indentation causing reload error in auth flow; fixed SlowAPI limiter argument on telemetry analytics
+
 ## In-Progress
 
-- Session guardian integration on the frontend (in-session risk checks) — optional, pending.
-- Celery adoption decision (or removal in favor of simple async tasks).
-- Transaction UX polish and error-state explanations.
-- Logging hardening (structured logs, reduce debug prints).
-- Test plan and CI pipeline definition.
+- Session guardian integration on the frontend (optional)
+- CI pipeline definition and initial tests (risk engine, telemetry upserts, auth flows)
+- Structured logging and error taxonomy; reduce debug prints
+- Transaction UX polish and clearer challenge/block messaging
+- Admin analytics UI for known-network summaries and decay report
 
 ## Known Issues / Limitations
 
@@ -107,12 +126,13 @@ Priority: Minor
 
 ## Next Steps / Roadmap
 
-- Stand up CI (lint/typecheck/tests, smoke tests on deploy).
-- Implement structured logging and error monitoring.
-- Finalize transaction flows and add user-facing risk/challenge explanations.
-- Decide on Celery vs. simple async tasks; prune unused surface accordingly.
-- Expand behavioral analytics, add drift detection scheduling.
-- Grow test suite (auth, step-up, risk thresholds, WebAuthn flows).
+- Stand up CI (lint/typecheck/tests + smoke tests post-deploy)
+- Health/metrics: add readiness details for Mongo/Redis and optional Prometheus metrics
+- Implement structured logging (JSON) and error monitoring
+- Finalize transaction flows and user-facing risk/challenge UX
+- Decide on Celery vs. simple async tasks; prune scaffolding accordingly
+- Expand behavioral analytics; add drift detection schedules
+- Grow test suite (risk thresholds incl. ASN/city fallback, telemetry, WebAuthn)
 
 ## Technical Details
 

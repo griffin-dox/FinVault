@@ -34,10 +34,18 @@ pip install -r requirements.txt
 ```
 ENVIRONMENT=development
 POSTGRES_URI=postgresql+asyncpg://user:password@host:port/dbname
-MONGODB_URI=mongodb+srv://user:password@cluster.mongodb.net/dbname
+MONGODB_URI=mongodb://localhost:27017
 REDIS_URI=redis://localhost:6379/0
 JWT_SECRET=replace-with-32+chars
 COOKIE_SECURE=0
+# Risk & Telemetry
+CARRIER_ASN_LIST=AS55836,AS45609,AS55410,AS55824
+KNOWN_NETWORK_PROMOTION_THRESHOLD=3
+KNOWN_NETWORK_DECAY_DAYS=90
+GEOIP_CACHE_TTL_SEC=86400
+# GeoIP (optional; auto-detects files in ../../data or ../data)
+GEOIP2_ASN_DB=
+GEOIP2_CITY_DB=
 ```
 
 4. Run
@@ -55,6 +63,11 @@ uvicorn app.main:app --reload
 ## API Docs
 
 Swagger: http://localhost:8000/docs
+
+Useful endpoints
+
+- GET /telemetry/known-networks/summary?days=30
+- GET /telemetry/known-networks/decay-report
 
 ## Structure
 
