@@ -15,6 +15,7 @@ import { Link } from "wouter";
 import { ArrowLeft, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { useDeviceInfo } from "@/hooks/use-device-info";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -32,6 +33,7 @@ export default function Login() {
 
   // Step 3: Background metrics
   const [metrics, setMetrics] = useState<{ ip: string; geo: { latitude: number | null; longitude: number | null; accuracy: number | null; fallback: boolean }; device: { browser?: string } }>({ ip: "", geo: { latitude: null, longitude: null, accuracy: null, fallback: true }, device: {} });
+  const deviceInfo = useDeviceInfo();
   const [metricsPreviewOpen, setMetricsPreviewOpen] = useState(false);
 
   // Risk and feedback state
@@ -78,6 +80,16 @@ export default function Login() {
     }
   }, [user, setLocation]);
 
+  // If a previous attempt indicated onboarding is required, auto-redirect
+  useEffect(() => {
+    try {
+      const needs = localStorage.getItem("securebank_pending_onboarding");
+      if (needs) {
+        setLocation("/onboarding");
+      }
+    } catch {}
+  }, [setLocation]);
+
   // Randomize challenge type on mount
   useEffect(() => {
     const isMobile = /Mobi|Android/i.test(navigator.userAgent);
@@ -115,18 +127,19 @@ export default function Login() {
           );
         });
       }
-      // Device info
+      // Device info (use enhanced hook for accuracy)
       const device = {
-        browser: navigator.userAgent,
-        os: navigator.platform,
-        screen: `${window.screen.width}x${window.screen.height}`,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-        language: navigator.language,
-      };
+        browser: deviceInfo.browser,
+        os: deviceInfo.os,
+        screen: deviceInfo.screen,
+        timezone: deviceInfo.timezone,
+        language: deviceInfo.language,
+      } as any;
       setMetrics((m: any) => ({ ...m, ip, geo, device }));
     }
     collectMetrics();
-  }, []);
+    // Re-run when device info becomes available
+  }, [deviceInfo.browser, deviceInfo.os, deviceInfo.screen, deviceInfo.timezone, deviceInfo.language]);
 
   // Step 4: Preview section (blurred)
   // ... will be rendered below form
@@ -158,6 +171,15 @@ export default function Login() {
       }
       if (riskLevel === "low") {
         login(data.user);
+        // Fire-and-forget: send telemetry (device + server-resolved IP)
+        try {
+          fetch("/api/telemetry/device", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ device: deviceInfo }),
+          }).catch(() => {});
+        } catch {}
         setRisk(null);
         setRiskReasons([]);
         setShowRiskModal(false);
@@ -194,13 +216,39 @@ export default function Login() {
       }
     },
     onError: (error: any) => {
-      // Only block if risk is high or status is 403
       const status = error?.status;
-      const riskLevel = error?.detail?.risk || (status === 403 ? "high" : "unknown");
-      const reasons = error?.detail?.reasons || [error?.detail?.message || error?.message || "Unknown error"];
-      if (import.meta.env.DEV) {
-        console.error("[LOGIN onError]", error);
+      const detail = error?.data?.detail || error?.detail || {};
+      const code = detail?.code;
+      const message = detail?.message || error?.message;
+      if (import.meta.env.DEV) console.error("[LOGIN onError]", { status, code, message, detail, error });
+      // Route based on explicit codes from backend
+      if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
+        try { localStorage.setItem("securebank_pending_email", identifier); } catch {}
+        toast({ title: "Verification required", description: "You are not verified. Redirecting to verify email." });
+        const redirect = detail?.redirect || "/verify-email";
+        setLocation(redirect);
+        return;
       }
+      if (status === 403 && code === "ONBOARDING_REQUIRED") {
+        const token = detail?.token;
+        if (token) { try { localStorage.setItem("securebank_token", token); } catch {} }
+        toast({ title: "Complete onboarding", description: "Redirecting you to finish onboarding." });
+        const redirect = detail?.redirect || "/onboarding";
+        try { localStorage.setItem("securebank_pending_onboarding", "1"); } catch {}
+        setLocation(redirect);
+        // Hard fallback in case SPA routing is blocked by state
+        setTimeout(() => {
+          try {
+            if (window.location.pathname !== "/onboarding") {
+              window.location.assign("/onboarding");
+            }
+          } catch {}
+        }, 50);
+        return;
+      }
+      // Default: risk modal
+      const riskLevel = detail?.risk || (status === 403 ? "high" : "unknown");
+      const reasons = detail?.reasons || [message || "Unknown error"];
       setRisk(riskLevel);
       setRiskReasons(reasons);
       setShowRiskModal(true);

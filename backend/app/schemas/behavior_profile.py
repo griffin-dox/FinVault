@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any
 
 
 class BehaviorProfileCreate(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     typing_pattern: Optional[Dict[str, Any]] = None
     mouse_dynamics: Optional[Dict[str, Any]] = None
     device_fingerprint: Optional[Dict[str, Any]] = None

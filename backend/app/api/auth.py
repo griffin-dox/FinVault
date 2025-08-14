@@ -41,11 +41,53 @@ ENV = os.environ.get("ENVIRONMENT", "development").lower()
 COOKIE_SAMESITE_DEFAULT = "none" if ENV == "production" else "lax"
 
 # Public API base for generating magic links
-def _public_api_base() -> str:
+def _public_api_base(request: Request | None = None) -> str:
+    # 1) Explicit override takes precedence
+    env_base = os.environ.get("PUBLIC_API_BASE_URL")
+    if env_base:
+        return env_base.rstrip("/")
+    # 2) Infer from request (honor proxies)
+    if request is not None:
+        try:
+            proto = request.headers.get("x-forwarded-proto") or request.headers.get("X-Forwarded-Proto") or request.url.scheme
+            host = request.headers.get("x-forwarded-host") or request.headers.get("X-Forwarded-Host") or request.headers.get("host") or request.headers.get("Host")
+            # If no forwarded host, fall back to request.url
+            if not host:
+                # request.url includes netloc; prefer hostname:port if present
+                host = request.url.hostname
+                if request.url.port and request.url.port not in (80, 443):
+                    host = f"{host}:{request.url.port}"
+            if proto and host:
+                return f"{proto}://{host}".rstrip("/")
+        except Exception:
+            pass
+    # 3) Environment-based fallback
     if ENV == "production":
-        # Render production base
-        return os.environ.get("PUBLIC_API_BASE_URL", "https://finvault-g6r7.onrender.com")
-    return os.environ.get("PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
+        return "https://finvault-g6r7.onrender.com"
+    return "http://127.0.0.1:8000"
+
+# Public Web base for user-facing links (emails). Prefer explicit env; fallback to request or API base
+def _public_web_base(request: Request | None = None) -> str:
+    # 1) Explicit override
+    web_env = os.environ.get("PUBLIC_WEB_BASE_URL")
+    if web_env:
+        return web_env.rstrip("/")
+    # 2) Try to infer from Referer or forwarded headers (best-effort)
+    if request is not None:
+        # Use Referer if present and absolute
+        ref = request.headers.get("referer") or request.headers.get("Referer")
+        if ref and ref.startswith("http"):
+            try:
+                from urllib.parse import urlparse
+                p = urlparse(ref)
+                host = p.netloc
+                scheme = p.scheme
+                if host and scheme:
+                    return f"{scheme}://{host}".rstrip("/")
+            except Exception:
+                pass
+        # Fallback to API base if no referer
+    return _public_api_base(request)
 
 # ...existing route definitions...
 
@@ -159,7 +201,8 @@ async def context_answer(request: Request, data: dict, db: AsyncSession = Depend
             if ambient.get("timezone") and not core_device.get("timezone"):
                 core_device["timezone"] = ambient["timezone"]
             if core_device:
-                update_doc["device_fingerprint"] = core_device
+                from app.services.risk_engine import canonicalize_device_fields
+                update_doc["device_fingerprint"] = canonicalize_device_fields(core_device)
             # Behavior signature
             try:
                 import hashlib, json
@@ -303,7 +346,8 @@ async def ambient_verify(request: Request, data: dict, db: AsyncSession = Depend
             if ambient.get("timezone") and not core_device.get("timezone"):
                 core_device["timezone"] = ambient["timezone"]
             if core_device:
-                update_doc["device_fingerprint"] = core_device
+                from app.services.risk_engine import canonicalize_device_fields
+                update_doc["device_fingerprint"] = canonicalize_device_fields(core_device)
             # Behavior signature
             try:
                 import hashlib, json
@@ -389,7 +433,7 @@ async def register(request: Request, data: RegisterRequest, db: AsyncSession = D
     await db.refresh(new_user)
     # Generate magic link token and URL (GET endpoint supported for convenience)
     token = create_magic_link_token({"user_id": new_user.id, "email": new_user.email})
-    magic_link = f"{_public_api_base()}/api/auth/verify?token={token}"
+    magic_link = f"{_public_web_base(request)}/verify-email?token={token}"
     # Send magic link
     if data.email:
         send_magic_link_email(data.email, magic_link)
@@ -412,8 +456,9 @@ async def verify(request: Request, data: VerifyRequest, db: AsyncSession = Depen
     user.verified_at = datetime.utcnow()
     user.verified = True
     await db.commit()
-    # Signal onboarding requirement to client
-    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True)
+    # Issue short-lived onboarding token so client can post onboarding
+    token = create_magic_link_token({"user_id": user.id, "email": user.email}, expires_in_seconds=900, scope="onboarding")
+    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True, token=token)
 
 # Support magic link GET verification to match emailed links
 @router.get("/verify", response_model=VerifyResponse)
@@ -431,22 +476,42 @@ async def verify_get(request: Request, token: str, db: AsyncSession = Depends(ge
     user.verified_at = datetime.utcnow()
     user.verified = True
     await db.commit()
-    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True)
+    token = create_magic_link_token({"user_id": user.id, "email": user.email}, expires_in_seconds=900, scope="onboarding")
+    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True, token=token)
 
 @router.post("/onboarding", response_model=OnboardingResponse)
 @limiter.limit("10/minute; 200/day")
 async def onboarding(request: Request, data: OnboardingRequest, db: AsyncSession = Depends(get_db)):
-    # Store behavioral profile in MongoDB
+    # Determine user_id from token if not provided
+    user_id = getattr(data, "user_id", None)
+    if not user_id:
+        # Accept Authorization: Bearer or access_token cookie
+        auth_header = request.headers.get("authorization")
+        cookie_token = request.cookies.get("access_token")
+        token_val = None
+        if auth_header and auth_header.startswith("Bearer "):
+            token_val = auth_header.split(" ", 1)[1]
+        elif cookie_token:
+            token_val = cookie_token
+        if token_val:
+            try:
+                payload = jwt.decode(token_val, TS_JWT_SECRET, algorithms=[TS_JWT_ALG])
+                user_id = payload.get("user_id")
+            except JWTError:
+                pass
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    # Store behavioral profile in MongoDB (upsert by user_id)
     profile = data.dict()
-    await mongo_db.behavior_profiles.insert_one(profile)
+    profile["user_id"] = user_id
+    await mongo_db.behavior_profiles.update_one({"user_id": user_id}, {"$set": profile}, upsert=True)
     # Mark onboarding complete on the SQL user
     try:
-        user_id = profile.get("user_id")
-        if user_id:
-            from sqlalchemy import update
-            from app.models import User as SQLUser
-            await db.execute(update(SQLUser).where(SQLUser.id == user_id).values(onboarding_complete=True))
-            await db.commit()
+        from sqlalchemy import update
+        from app.models import User as SQLUser
+        await db.execute(update(SQLUser).where(SQLUser.id == user_id).values(onboarding_complete=True))
+        await db.commit()
     except Exception as _e:
         print(f"[ONBOARDING] Failed to mark onboarding_complete: {_e}")
     return OnboardingResponse(message="Onboarding data recorded.")
@@ -512,12 +577,26 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
             print(f"[LOGIN] Login failed - email not verified")
             trigger_alert("failed_login", f"Failed login (unverified) for {data.identifier}")
             await log_login_attempt(db, user_id=user.id, location=location, status="failure", details="unverified_email")
-            raise HTTPException(status_code=403, detail={"message": "Email not verified.", "code": "EMAIL_NOT_VERIFIED"})
+            raise HTTPException(status_code=403, detail={
+                "message": "Email not verified.",
+                "code": "EMAIL_NOT_VERIFIED",
+                "redirect": "/verify-email"
+            })
         # Enforce onboarding before login
         if not getattr(user, "onboarding_complete", False):
             print(f"[LOGIN] Onboarding required for user {user.id}")
             await log_login_attempt(db, user_id=user.id, location=location, status="failure", details="onboarding_required")
-            raise HTTPException(status_code=403, detail={"message": "Onboarding required.", "code": "ONBOARDING_REQUIRED"})
+            # Issue short-lived onboarding token to allow completing onboarding
+            onboarding_token = create_magic_link_token({
+                "user_id": user.id,
+                "email": user.email
+            }, expires_in_seconds=900, scope="onboarding")
+            raise HTTPException(status_code=403, detail={
+                "message": "Onboarding required.",
+                "code": "ONBOARDING_REQUIRED",
+                "redirect": "/onboarding",
+                "token": onboarding_token
+            })
             
         # --- Behavioral comparison ---
         profile = {}
@@ -549,6 +628,21 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
             pass
         # Centralized risk evaluation (use enriched metrics)
         from app.services.risk_engine import score_login
+        # Wire in optional IP enrichment hints from Mongo ip_addresses cache if available
+        try:
+            if mongo_db is not None and isinstance(metrics, dict):
+                ip_for_lookup = metrics.get('ip')
+                if ip_for_lookup:
+                    ip_doc = await mongo_db.ip_addresses.find_one({"ip": ip_for_lookup})
+                    if ip_doc:
+                        # map into flat metrics keys consumed by risk_engine._normalize_metrics
+                        metrics['ip_asn'] = ip_doc.get('asn')
+                        metrics['ip_asn_org'] = ip_doc.get('asn_org')
+                        metrics['ip_city'] = ip_doc.get('city')
+                        metrics['ip_region'] = ip_doc.get('region')
+                        metrics['ip_country'] = ip_doc.get('country')
+        except Exception:
+            pass
         result = score_login(data.behavioral_challenge, metrics, profile)
         reasons = result.get("reasons", [])
         risk_score = result.get("risk_score", 0)
@@ -671,9 +765,24 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
                         ip_prefix = None
                 update_doc = {"last_seen": datetime.utcnow()}
                 if device_metrics:
-                    update_doc["device_fingerprint"] = device_metrics
+                    from app.services.risk_engine import canonicalize_device_fields
+                    update_doc["device_fingerprint"] = canonicalize_device_fields(device_metrics)
                 if geo_metrics and not geo_metrics.get('fallback', True):
                     update_doc["geo"] = geo_metrics
+                # Save coarse IP geo baseline for city-level fallback comparisons
+                try:
+                    if mongo_db is not None and metrics and isinstance(metrics, dict):
+                        ip_for_lookup2 = metrics.get('ip')
+                        if ip_for_lookup2:
+                            ip_doc2 = await mongo_db.ip_addresses.find_one({"ip": ip_for_lookup2})
+                            if ip_doc2:
+                                update_doc["ip_geo"] = {
+                                    "city": ip_doc2.get("city"),
+                                    "region": ip_doc2.get("region"),
+                                    "country": ip_doc2.get("country"),
+                                }
+                except Exception:
+                    pass
                 # Attach behavior signature for session cloaking
                 behavior_signature = None
                 try:
@@ -688,6 +797,26 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
                         core["ip_prefix"] = ip_prefix
                     behavior_signature = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
                     update_doc["behavior_signature"] = behavior_signature
+                except Exception:
+                    pass
+
+                # Also record telemetry (device + IP) in Mongo collections
+                try:
+                    from app.services.telemetry_service import (
+                        record_telemetry,
+                        update_known_network_counter,
+                        promote_known_network_if_ready,
+                        demote_stale_known_networks,
+                    )
+                    t = await record_telemetry(request, device_metrics or {}, user.id)
+                    try:
+                        # Update per-day counters for known network promotion tracking
+                        if isinstance(metrics, dict) and metrics.get('ip'):
+                            await update_known_network_counter(user.id, metrics.get('ip'))
+                            await promote_known_network_if_ready(user.id, metrics.get('ip'))
+                            await demote_stale_known_networks(user.id)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
@@ -857,18 +986,33 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @router.post("/verify-email")
-async def verify_email(data: dict, db: AsyncSession = Depends(get_db)):
-    email = data.get("email")
-    if not email:
-        raise HTTPException(status_code=400, detail="Email is required.")
-    result = await db.execute(select(User).where(User.email == email))
+@limiter.limit("3/minute; 10/hour")
+async def verify_email(request: Request, data: dict, db: AsyncSession = Depends(get_db)):
+    identifier = data.get("identifier") or data.get("email") or data.get("user")
+    if not identifier:
+        raise HTTPException(status_code=400, detail="Email or identifier is required.")
+    # Resolve user by email/phone/name
+    result = await db.execute(select(User).where(User.email == identifier))
     user = result.scalar_one_or_none()
+    if not user:
+        result = await db.execute(select(User).where(User.phone == identifier))
+        user = result.scalar_one_or_none()
+    if not user:
+        result = await db.execute(select(User).where(User.name == identifier))
+        user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     if user.verified and user.verified_at:
         return {"message": "Email already verified."}
-    # In a real app, resend magic link here
-    return {"message": "Verification email sent (mock)."}
+    # Generate token and send magic link to frontend route
+    token = create_magic_link_token({"user_id": user.id, "email": user.email})
+    magic_link = f"{_public_web_base(request)}/verify-email?token={token}"
+    ok = send_magic_link_email(user.email, magic_link)
+    if not ok:
+        # Log-only: avoid exposing token in API response
+        print(f"[EmailService] Delivery failed; magic link (dev): {magic_link}")
+        return {"message": "Attempted to send verification email. If it doesn't arrive, contact support."}
+    return {"message": "Verification email sent. Please check your inbox."}
 
 @router.post("/complete-onboarding")
 async def complete_onboarding(data: dict, db: AsyncSession = Depends(get_db)):
@@ -1069,7 +1213,7 @@ async def send_magic_link(request: Request, data: MagicLinkRequest, db: AsyncSes
         "created_at": datetime.utcnow()
     })
     # Send email with link
-    link = f"{_public_api_base()}/api/auth/magic-link/verify?token={token}"
+    link = f"{_public_web_base(request)}/magic-link?token={token}"
     send_magic_link_email(user.email, link)
     await mongo_db.stepup_logs.insert_one({"user": data.identifier, "method": "magic_link", "timestamp": datetime.utcnow(), "success": True})
     return StepupResponse(message="Magic link sent to your email.", token=None, risk="medium")

@@ -12,27 +12,36 @@ export default function VerifyEmail() {
   const [, setLocation] = useLocation();
   const [email, setEmail] = useState<string>("");
   const { toast } = useToast();
+  const [tokenParam, setTokenParam] = useState<string | null>(null);
 
   useEffect(() => {
+    const url = new URL(window.location.href);
+    const t = url.searchParams.get("token");
+    if (t) setTokenParam(t);
     const pendingEmail = localStorage.getItem("securebank_pending_email");
-    if (pendingEmail) {
-      setEmail(pendingEmail);
-    } else {
-      setLocation("/register");
-    }
+    if (pendingEmail) setEmail(pendingEmail);
   }, [setLocation]);
 
   const verifyMutation = useMutation({
     mutationFn: async () => {
-      const response = await apiRequest("POST", "/api/auth/verify-email", { email });
+      if (tokenParam) {
+        const res = await apiRequest("GET", `/api/auth/verify?token=${encodeURIComponent(tokenParam)}`);
+        return await res.json();
+      }
+  const response = await apiRequest("POST", "/api/auth/verify-email", { identifier: email });
       return await response.json();
     },
-    onSuccess: () => {
-      toast({
-        title: "Email Verified!",
-        description: "Your email has been successfully verified.",
-      });
-  setLocation("/login");
+    onSuccess: (data: any) => {
+      if (tokenParam) {
+        toast({ title: "Email Verified!", description: "Verification successful." });
+        if (data?.token) {
+          try { localStorage.setItem("securebank_token", data.token); } catch {}
+        }
+        setLocation("/onboarding");
+        return;
+      }
+      // Resend path: don't navigate; just notify
+      toast({ title: "Verification email sent", description: "Please check your inbox and click the link." });
     },
     onError: (error: any) => {
       toast({
@@ -90,7 +99,7 @@ export default function VerifyEmail() {
             </CardHeader>
             
             <CardContent className="space-y-4">
-              <Button 
+      <Button 
                 onClick={handleVerify}
                 className="w-full banking-button-primary"
                 disabled={verifyMutation.isPending}
@@ -103,7 +112,7 @@ export default function VerifyEmail() {
                 ) : (
                   <>
                     <CheckCircle className="mr-2 h-4 w-4" />
-                    Email Verified - Continue
+        Verify and Continue
                   </>
                 )}
               </Button>

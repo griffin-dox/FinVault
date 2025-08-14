@@ -58,7 +58,7 @@ async def ensure_mongo_indexes():
         await mongo_db.geo_events.create_index([("user_id", ASCENDING)])
         await mongo_db.geo_events.create_index([("tile_lat", ASCENDING), ("tile_lon", ASCENDING)])
 
-        # Aggregated tiles collection: keep 180 days
+    # Aggregated tiles collection: keep 180 days
         await mongo_db.geo_tiles_agg.create_index(
             [("last_seen", ASCENDING)], expireAfterSeconds=180 * 24 * 3600
         )
@@ -66,6 +66,19 @@ async def ensure_mongo_indexes():
         await mongo_db.geo_tiles_agg.create_index(
             [("user_id", ASCENDING), ("tile_lat", ASCENDING), ("tile_lon", ASCENDING)], unique=True
         )
+        # Telemetry collections
+        try:
+            await mongo_db.ip_addresses.create_index([("ip", ASCENDING)], unique=True)
+            await mongo_db.ip_addresses.create_index([("last_seen", ASCENDING)])
+            await mongo_db.devices.create_index([("device_hash", ASCENDING)], unique=True)
+            await mongo_db.devices.create_index([("last_seen", ASCENDING)])
+            await mongo_db.device_ip_events.create_index([("device_id", ASCENDING), ("ip_id", ASCENDING)], unique=True)
+            await mongo_db.device_ip_events.create_index([("last_seen", ASCENDING)])
+            # Known network counters: unique per user/prefix/day for aggregation
+            await mongo_db.known_network_counters.create_index([("user_id", ASCENDING), ("prefix", ASCENDING), ("day", ASCENDING)], unique=True)
+            await mongo_db.known_network_counters.create_index([("last_seen", ASCENDING)])
+        except Exception:
+            pass
     except Exception as e:
         # Log silently to avoid crashing startup
         print(f"[MongoIndexes] Failed to ensure indexes: {e}")

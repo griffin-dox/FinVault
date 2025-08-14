@@ -15,9 +15,10 @@ class VerifyRequest(BaseModel):
 class VerifyResponse(BaseModel):
     message: str
     onboarding_required: bool | None = None
+    token: Optional[str] = None
 
 class OnboardingRequest(BaseModel):
-    user_id: int
+    user_id: Optional[int] = None
     typing_pattern: Optional[dict]
     mouse_dynamics: Optional[dict]
     device_fingerprint: Optional[dict]

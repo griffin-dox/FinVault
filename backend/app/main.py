@@ -10,7 +10,7 @@ from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
 
 from app.database import AsyncSessionLocal, mongo_db, redis_client, ensure_mongo_indexes
-from app.api import auth, transaction, dashboard, admin, behavior_profile, geo, util
+from app.api import auth, transaction, dashboard, admin, behavior_profile, geo, util, telemetry
 from app.api.session_guardian import session_guardian
 from app.security import security_config, validate_environment
 from app.services.rate_limit import limiter, rate_limit_exceeded_handler
@@ -98,6 +98,7 @@ app.include_router(behavior_profile.router, prefix="/api")
 app.include_router(geo.router, prefix="/api")
 app.include_router(session_guardian.router, prefix="/api")
 app.include_router(util.router, prefix="/api")
+app.include_router(telemetry.router, prefix="/api")
 
 @app.on_event("startup")
 async def on_startup():

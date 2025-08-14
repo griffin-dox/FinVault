@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Tuple, Optional
 import os
 import ipaddress
+import re
 
 # Example of dynamic rules (could be loaded from DB)
 default_rules = {
@@ -102,6 +103,12 @@ def _normalize_metrics(metrics: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         "device": m.get("device") or {},
         "geo": m.get("geo") or {},
         "ip": m.get("ip") or None,
+        # Optional IP enrichments (populated by caller if available)
+        "ip_asn": m.get("ip_asn"),
+        "ip_asn_org": m.get("ip_asn_org"),
+        "ip_city": m.get("ip_city"),
+        "ip_region": m.get("ip_region"),
+        "ip_country": m.get("ip_country"),
     }
 
 def _haversine(lat1: Optional[float], lon1: Optional[float], lat2: Optional[float], lon2: Optional[float]) -> float:
@@ -118,14 +125,178 @@ def _haversine(lat1: Optional[float], lon1: Optional[float], lat2: Optional[floa
     return c * r
 
 def device_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[int, List[str]]:
+    """Compare device fingerprints with tolerant rules.
+    Rules:
+    - browser: compare brand and major version; if same brand and |major diff|<=1 -> no penalty; different brand -> 20; else small 5.
+    - os: compare family (Windows/macOS/Linux/Android/iOS); same family -> no penalty; else 15.
+    - screen: tolerate ±100px on width/height; if within tolerance -> no penalty; else if same class (mobile/tablet/desktop) -> 5; else 15.
+    - timezone: keep strict compare for now.
+    """
     reasons: List[str] = []
     penalty = 0
-    fields = ['browser', 'os', 'screen', 'timezone']
-    for k in fields:
-        if current.get(k) and profile.get(k) and current.get(k) != profile.get(k):
-            reasons.append(f"Device {k} mismatch: {current.get(k)} vs {profile.get(k)}")
+
+    cur = current or {}
+    prof = profile or {}
+
+    # Browser
+    cb, cv = _parse_browser(cur.get('browser'))
+    pb, pv = _parse_browser(prof.get('browser'))
+    if cb and pb:
+        if cb != pb:
             penalty += 20
+            reasons.append(f"Device browser brand mismatch: {cb} vs {pb}")
+        else:
+            # Same brand; compare major version
+            if cv is not None and pv is not None:
+                if abs(cv - pv) > 1:
+                    penalty += 5
+                    reasons.append(f"Device browser version differs: {cv} vs {pv}")
+    elif cur.get('browser') and prof.get('browser') and cur.get('browser') != prof.get('browser'):
+        penalty += 10
+        reasons.append("Device browser differs (unparsed)")
+
+    # OS
+    co = _canonical_os(cur.get('os'))
+    po = _canonical_os(prof.get('os'))
+    if co and po and co != po:
+        penalty += 15
+        reasons.append(f"Device os family mismatch: {co} vs {po}")
+
+    # Screen (tolerant)
+    cs = cur.get('screen')
+    ps = prof.get('screen')
+    if cs and ps:
+        cwh = _parse_screen(cs)
+        pwh = _parse_screen(ps)
+        if cwh and pwh:
+            if not _screen_within_tolerance(cwh, pwh, tolerance_px=100):
+                ccls = _screen_class(cwh)
+                pcls = _screen_class(pwh)
+                if ccls == pcls:
+                    penalty += 5
+                    reasons.append(f"Screen size changed within same class ({ccls})")
+                else:
+                    penalty += 15
+                    reasons.append(f"Screen class changed: {ccls} -> {pcls}")
+        elif cs != ps:
+            # Fallback textual compare
+            penalty += 5
+            reasons.append("Screen differs")
+
+    # Timezone (strict)
+    if cur.get('timezone') and prof.get('timezone') and cur.get('timezone') != prof.get('timezone'):
+        penalty += 10
+        reasons.append(f"Device timezone mismatch: {cur.get('timezone')} vs {prof.get('timezone')}")
+
     return penalty, reasons
+
+# ----------------------
+# Device normalization helpers
+# ----------------------
+
+_BROWSER_BRANDS = [
+    'chrome', 'chromium', 'edge', 'edg', 'safari', 'firefox', 'fx', 'opera', 'opr', 'brave'
+]
+
+def _parse_browser(value: Optional[str]) -> Tuple[Optional[str], Optional[int]]:
+    """Parse browser into (brand, major_version). Accepts UA or 'Chrome 119'."""
+    if not value:
+        return None, None
+    s = str(value)
+    low = s.lower()
+    # If looks like 'Name 123'
+    m = re.match(r"([A-Za-z]+)\s+(\d+)", s)
+    if m:
+        return m.group(1).lower(), int(m.group(2))
+    # Try to extract from UA
+    # Order matters: Chrome before Safari (to avoid Mobile Safari on iOS reporting Safari)
+    if 'chrome' in low or 'crios' in low:
+        ver = _ua_version(low, ['chrome/', 'crios/'])
+        return 'chrome', ver
+    if 'edg' in low:
+        ver = _ua_version(low, ['edg/'])
+        return 'edge', ver
+    if 'firefox' in low or 'fx' in low:
+        ver = _ua_version(low, ['firefox/'])
+        return 'firefox', ver
+    if 'safari' in low and 'chrome' not in low:
+        ver = _ua_version(low, ['version/'])
+        return 'safari', ver
+    if 'opr/' in low or 'opera' in low:
+        ver = _ua_version(low, ['opr/', 'opera/'])
+        return 'opera', ver
+    return None, None
+
+def _ua_version(ua: str, needles: List[str]) -> Optional[int]:
+    for n in needles:
+        if n in ua:
+            try:
+                seg = ua.split(n, 1)[1]
+                num = re.match(r"(\d+)", seg)
+                return int(num.group(1)) if num else None
+            except Exception:
+                return None
+    return None
+
+def _canonical_os(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    s = str(value).lower()
+    if any(k in s for k in ['win', 'windows']):
+        return 'windows'
+    if any(k in s for k in ['mac', 'darwin', 'os x', 'macos']):
+        return 'macos'
+    if 'android' in s:
+        return 'android'
+    if any(k in s for k in ['ios', 'iphone', 'ipad']):
+        return 'ios'
+    if any(k in s for k in ['linux', 'ubuntu', 'debian', 'arch']):
+        return 'linux'
+    return s.strip()
+
+def _parse_screen(value: Any) -> Optional[Tuple[int, int]]:
+    """Parse screen into (width, height). Accepts '1920x1080' or dict with width/height."""
+    if value is None:
+        return None
+    try:
+        if isinstance(value, str):
+            m = re.match(r"\s*(\d+)\s*[xX]\s*(\d+)\s*", value)
+            if m:
+                return int(m.group(1)), int(m.group(2))
+        if isinstance(value, dict):
+            w = value.get('width') or value.get('w')
+            h = value.get('height') or value.get('h')
+            if isinstance(w, (int, float)) and isinstance(h, (int, float)):
+                return int(w), int(h)
+    except Exception:
+        return None
+    return None
+
+def _screen_within_tolerance(a: Tuple[int, int], b: Tuple[int, int], tolerance_px: int = 100) -> bool:
+    return abs(a[0]-b[0]) <= tolerance_px and abs(a[1]-b[1]) <= tolerance_px
+
+def _screen_class(wh: Tuple[int, int]) -> str:
+    w, h = sorted(wh)  # ensure w<=h for classification
+    # Very rough classes; tweak as needed
+    if w <= 480 and h <= 960:
+        return 'mobile-small'
+    if w <= 820 and h <= 1366:
+        return 'mobile' if w < 600 else 'tablet'
+    return 'desktop'
+
+def canonicalize_device_fields(device: Dict[str, Any]) -> Dict[str, Any]:
+    """Return a copy of device with normalized browser/os and screen string normalized to 'WxH'."""
+    d = dict(device or {})
+    b, v = _parse_browser(d.get('browser'))
+    if b:
+        d['browser'] = f"{b.capitalize()} {v}" if v is not None else b.capitalize()
+    o = _canonical_os(d.get('os'))
+    if o:
+        d['os'] = o
+    s = _parse_screen(d.get('screen'))
+    if s:
+        d['screen'] = f"{s[0]}x{s[1]}"
+    return d
 
 def geo_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[int, List[str]]:
     """Adaptive geolocation penalty using browser-reported accuracy.
@@ -157,6 +328,42 @@ def geo_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[int, 
             penalty += int(add)
             reasons.append(f"Geo differs by {dist_km:.2f} km (> tol {int(tol_m)}m)")
     return penalty, reasons
+
+def _city_fallback_penalty(cur: Dict[str, Any], prof: Dict[str, Any]) -> Tuple[int, List[str]]:
+    """City-level fallback when precise browser geolocation is missing.
+    Rules:
+    - if no IP geo info: +15
+    - if same country and same city: +0
+    - if same country and same region: +3
+    - if same country, different region: +7
+    - if different country: +10
+    """
+    reasons: List[str] = []
+    if not cur:
+        reasons.append("No IP geo info for fallback")
+        return 15, reasons
+    c_city = (cur.get("city") or "").strip().lower()
+    c_region = (cur.get("region") or "").strip().lower()
+    c_country = (cur.get("country") or "").strip().lower()
+    p_city = (prof.get("city") or "").strip().lower()
+    p_region = (prof.get("region") or "").strip().lower()
+    p_country = (prof.get("country") or "").strip().lower()
+    if not p_country:
+        # No baseline to compare
+        reasons.append("No baseline IP geo; applying default fallback")
+        return 15, reasons
+    if c_country != p_country:
+        reasons.append("IP geo country differs")
+        return 10, reasons
+    # same country
+    if c_city and p_city and c_city == p_city:
+        reasons.append("IP geo city matches baseline")
+        return 0, reasons
+    if c_region and p_region and c_region == p_region:
+        reasons.append("IP geo region matches baseline")
+        return 3, reasons
+    reasons.append("IP geo region differs within country")
+    return 7, reasons
 
 def typing_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[int, List[str]]:
     """Typing penalty using per-user baselines if available.
@@ -301,6 +508,29 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
     geo = m["geo"]
     device = m["device"]
     ip = m["ip"]
+    # Optional IP enrichments
+    ip_asn = m.get("ip_asn")
+    ip_asn_org = (m.get("ip_asn_org") or "").strip()
+    ip_city = m.get("ip_city")
+    ip_region = m.get("ip_region")
+    ip_country = m.get("ip_country")
+
+    # Determine ASN-based IP weighting factor
+    ip_weight_factor = 1.0
+    try:
+        asn_str = None
+        if isinstance(ip_asn, int):
+            asn_str = f"AS{ip_asn}"
+        elif isinstance(ip_asn, str) and ip_asn.strip():
+            s = ip_asn.strip().upper()
+            asn_str = s if s.startswith("AS") else f"AS{s}"
+        # Default includes large Indian mobile carriers; override via env CARRIER_ASN_LIST
+        carriers_env = os.environ.get("CARRIER_ASN_LIST", "AS55836,AS45609,AS55410,AS55824")
+        carriers = {c.strip().upper() for c in carriers_env.split(',') if c.strip()}
+        if asn_str and asn_str.upper() in carriers:
+            ip_weight_factor = 0.3
+    except Exception:
+        pass
 
     # Baseline penalties for missing/weak signals
     if not profile:
@@ -311,7 +541,12 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
         risk_score += 15
     if not geo or geo.get('fallback', True):
         reasons.append("No reliable geolocation (fallback or missing)")
-        risk_score += 25
+        # Apply city-level IP geo fallback if both sides have info
+        cur_ip_geo = {"city": ip_city, "region": ip_region, "country": ip_country}
+        prof_ip_geo = profile.get('ip_geo') or {}
+        c_pen, c_reasons = _city_fallback_penalty(cur_ip_geo, prof_ip_geo)
+        reasons += [f"Geo fallback: {r}" for r in c_reasons]
+        risk_score += c_pen
     if not device or len(device) == 0:
         reasons.append("No device fingerprint provided")
         risk_score += 20
@@ -334,7 +569,8 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
         risk_score += 10
     # Device mismatch vs profile
     if profile.get('device_fingerprint') and device:
-        d_pen, d_reasons = device_penalty(device, profile.get('device_fingerprint') or {})
+        # Normalize both sides lightly before comparison to reduce false positives
+        d_pen, d_reasons = device_penalty(canonicalize_device_fields(device), canonicalize_device_fields(profile.get('device_fingerprint') or {}))
         reasons += d_reasons
         risk_score += d_pen
 
@@ -343,6 +579,20 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
         g_pen, g_reasons = geo_penalty(geo, profile.get('geo') or {})
         reasons += g_reasons
         risk_score += g_pen
+        # If low-accuracy browser geo (>500m), apply city-level fallback adjustment
+        try:
+            acc = geo.get('accuracy')
+            if isinstance(acc, (int, float)) and acc > 500:
+                cur_ip_geo2 = {"city": ip_city, "region": ip_region, "country": ip_country}
+                prof_ip_geo2 = profile.get('ip_geo') or {}
+                c_pen2, c_reasons2 = _city_fallback_penalty(cur_ip_geo2, prof_ip_geo2)
+                # geo_penalty already added a base 10, replace with city-level if larger
+                adj = max(0, c_pen2 - 10)
+                if adj:
+                    reasons += [f"Geo fallback: {r}" for r in c_reasons2]
+                    risk_score += adj
+        except Exception:
+            pass
     # Minimal IP/geo presence penalty
     if ip in [None, '', 'unknown']:
         reasons.append("IP missing or unknown")
@@ -356,7 +606,8 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
         risk_score += 25
     if allowlist and not _ip_in_prefixes(ip, allowlist):
         # Not strictly a penalty, but slight nudge if outside familiar networks
-        risk_score += 5
+        add = int(round(5 * ip_weight_factor))
+        risk_score += add
 
     # Known networks from user profile
     known_networks = set(profile.get('known_networks', []) or [])
@@ -365,7 +616,15 @@ def score_login(behavioral_challenge: Optional[Dict[str, Any]], metrics: Optiona
             reasons.append("IP matches user's known network")
             risk_score = max(0, risk_score - 7)
         else:
-            risk_score += 3
+            add = int(round(3 * ip_weight_factor))
+            risk_score += add
+
+    # Note ASN-related downweighting for transparency
+    try:
+        if ip_weight_factor < 1.0:
+            reasons.append("Carrier/mobile ASN detected; down-weighted IP-based checks")
+    except Exception:
+        pass
 
     # Escalation by missing critical signals count
     missing = 0
@@ -420,26 +679,81 @@ def score_session(telemetry: Dict[str, Any], profile: Optional[Dict[str, Any]]) 
         "device": telemetry.get("device") or {},
         "geo": telemetry.get("geo") or {},
         "ip": telemetry.get("ip") or None,
+        # Optional enrichments for consistency with login scoring
+        "ip_asn": telemetry.get("ip_asn"),
+        "ip_asn_org": telemetry.get("ip_asn_org"),
+        "ip_city": telemetry.get("ip_city"),
+        "ip_region": telemetry.get("ip_region"),
+        "ip_country": telemetry.get("ip_country"),
     }
     # Device/Geo consistency
     if profile.get('device_fingerprint') and m['device']:
-        d_pen, d_r = device_penalty(m['device'], profile.get('device_fingerprint') or {})
+        d_pen, d_r = device_penalty(canonicalize_device_fields(m['device']), canonicalize_device_fields(profile.get('device_fingerprint') or {}))
         reasons += d_r
         risk += d_pen // 2  # softer in-session weight
     if profile.get('geo') and m['geo']:
         g_pen, g_r = geo_penalty(m['geo'], profile.get('geo') or {})
         reasons += g_r
         risk += g_pen // 2
+        # City-level fallback if low accuracy
+        try:
+            acc = m['geo'].get('accuracy')
+            if isinstance(acc, (int, float)) and acc > 500:
+                cur_ip_geo = {"city": m.get("ip_city"), "region": m.get("ip_region"), "country": m.get("ip_country")}
+                prof_ip_geo = profile.get('ip_geo') or {}
+                c_pen, c_r = _city_fallback_penalty(cur_ip_geo, prof_ip_geo)
+                # half weight in-session; subtract base 10 already added by geo_penalty
+                adj = max(0, c_pen - 10)
+                if adj:
+                    reasons += [f"Geo fallback: {r}" for r in c_r]
+                    risk += adj // 2
+        except Exception:
+            pass
 
     # IP/Networks
     ip = m['ip']
+    # ASN-aware IP weighting
+    ip_weight_factor = 1.0
+    try:
+        asn_str = None
+        ip_asn = m.get('ip_asn')
+        if isinstance(ip_asn, int):
+            asn_str = f"AS{ip_asn}"
+        elif isinstance(ip_asn, str) and ip_asn.strip():
+            s = ip_asn.strip().upper()
+            asn_str = s if s.startswith("AS") else f"AS{s}"
+        carriers_env = os.environ.get("CARRIER_ASN_LIST", "AS55836,AS45609,AS55410,AS55824")
+        carriers = {c.strip().upper() for c in carriers_env.split(',') if c.strip()}
+        if asn_str and asn_str.upper() in carriers:
+            ip_weight_factor = 0.3
+    except Exception:
+        pass
     if ip in [None, '', 'unknown']:
         reasons.append("IP missing or unknown (session)")
         risk += 3
     else:
         known_networks = set(profile.get('known_networks', []) or [])
         if known_networks and not _ip_in_prefixes(ip, list(known_networks)):
-            risk += 3
+            risk += int(round(3 * ip_weight_factor))
+        # Allow/Deny lists influence
+        deny = os.environ.get('DENYLIST_IP_PREFIXES', '')
+        allow = os.environ.get('ALLOWLIST_IP_PREFIXES', '')
+        denylist = [p.strip() for p in deny.split(',') if p.strip()]
+        allowlist = [p.strip() for p in allow.split(',') if p.strip()]
+        try:
+            if denylist and _ip_in_prefixes(ip, denylist):
+                reasons.append("IP in denylist range (session)")
+                risk += 20  # slightly lower weight in-session
+            if allowlist and not _ip_in_prefixes(ip, allowlist):
+                risk += int(round(3 * ip_weight_factor))
+        except Exception:
+            pass
+
+    try:
+        if ip_weight_factor < 1.0:
+            reasons.append("Carrier/mobile ASN detected; down-weighted IP checks (session)")
+    except Exception:
+        pass
 
     # Idle/pointer anomalies
     idle_jitter = telemetry.get('idle_jitter_ms')

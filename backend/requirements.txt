@@ -14,3 +14,4 @@ flake8==6.1.0
 fido2==1.1.2
 pytz==2023.3
 slowapi==0.1.9
+maxminddb==2.6.2

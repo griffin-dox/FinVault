@@ -342,10 +342,8 @@ export default function Onboarding() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
-  const email = localStorage.getItem("securebank_pending_email");
-  if (!email) throw new Error("No pending registration found");
       const { verification_status, risk_level } = getVerificationStatusAndRisk();
-      // POST behavioral profile to backend
+      // 1) Store profile for risk engine
       const response = await apiRequest("POST", "/api/behavior-profile", {
         typing_pattern: behavioralData.typingAnalysis,
         mouse_dynamics: behavioralData.mouseMovement,
@@ -353,19 +351,19 @@ export default function Onboarding() {
         verification_status,
         risk_level,
       });
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || "Profile creation failed");
-      }
-      return await response.json();
-    },
-    onSuccess: (data) => {
-      localStorage.removeItem("securebank_pending_email");
-      toast({
-        title: "Behavioral Profile Complete!",
-        description: "Your comprehensive security profile has been created.",
+      const profileResult = await response.json();
+      // 2) Mark onboarding complete on SQL user (token-based)
+      await apiRequest("POST", "/api/auth/onboarding", {
+        typing_pattern: behavioralData.typingAnalysis,
+        mouse_dynamics: behavioralData.mouseMovement,
+        device_fingerprint: deviceInfo,
       });
-      setLocation("/dashboard");
+      return profileResult;
+    },
+    onSuccess: () => {
+      localStorage.removeItem("securebank_pending_email");
+      toast({ title: "Onboarding complete", description: "You're all set. Please sign in." });
+      setLocation("/login");
     },
     onError: (error: any) => {
       toast({

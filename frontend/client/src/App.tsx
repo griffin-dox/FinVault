@@ -15,6 +15,7 @@ import Admin from "@/pages/Admin";
 import Login from "@/pages/Login";
 import HealthCheckPage from "@/pages/HealthCheck";
 import AdditionalVerification from "@/pages/AdditionalVerification";
+import MagicLink from "@/pages/MagicLink";
 import Navbar from "@/components/Navbar";
 import { AuthProvider, withAuth, withAdminAuth, withGuest } from "@/hooks/use-auth";
 
@@ -27,9 +28,10 @@ function AppRouter() {
           <Route path="/" component={Landing} />
           <Route path="/register" component={withGuest(Register)} />
           <Route path="/verify-email" component={VerifyEmail} />
-          <Route path="/onboarding" component={withAuth(Onboarding)} />
+          <Route path="/onboarding" component={Onboarding} />
           <Route path="/login" component={withGuest(Login)} />
           <Route path="/additional-verification" component={withGuest(AdditionalVerification)} />
+          <Route path="/magic-link" component={withGuest(MagicLink)} />
           <Route path="/dashboard" component={withAuth(Dashboard)} />
           <Route path="/transactions" component={withAuth(Transactions)} />
           <Route path="/admin" component={withAdminAuth(Admin)} />
