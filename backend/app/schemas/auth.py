@@ -14,6 +14,7 @@ class VerifyRequest(BaseModel):
 
 class VerifyResponse(BaseModel):
     message: str
+    onboarding_required: bool | None = None
 
 class OnboardingRequest(BaseModel):
     user_id: int

@@ -40,6 +40,13 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 ENV = os.environ.get("ENVIRONMENT", "development").lower()
 COOKIE_SAMESITE_DEFAULT = "none" if ENV == "production" else "lax"
 
+# Public API base for generating magic links
+def _public_api_base() -> str:
+    if ENV == "production":
+        # Render production base
+        return os.environ.get("PUBLIC_API_BASE_URL", "https://finvault-g6r7.onrender.com")
+    return os.environ.get("PUBLIC_API_BASE_URL", "http://127.0.0.1:8000")
+
 # ...existing route definitions...
 
 @router.post("/context-question")
@@ -380,9 +387,9 @@ async def register(request: Request, data: RegisterRequest, db: AsyncSession = D
         # Handle unexpected unique constraint races gracefully
         raise HTTPException(status_code=409, detail={"message": "User already exists (email or phone)."})
     await db.refresh(new_user)
-    # Generate magic link token
+    # Generate magic link token and URL (GET endpoint supported for convenience)
     token = create_magic_link_token({"user_id": new_user.id, "email": new_user.email})
-    magic_link = f"http://localhost:8000/auth/verify?token={token}"
+    magic_link = f"{_public_api_base()}/api/auth/verify?token={token}"
     # Send magic link
     if data.email:
         send_magic_link_email(data.email, magic_link)
@@ -405,14 +412,43 @@ async def verify(request: Request, data: VerifyRequest, db: AsyncSession = Depen
     user.verified_at = datetime.utcnow()
     user.verified = True
     await db.commit()
-    return VerifyResponse(message="Verification successful. You may now log in.")
+    # Signal onboarding requirement to client
+    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True)
+
+# Support magic link GET verification to match emailed links
+@router.get("/verify", response_model=VerifyResponse)
+@limiter.limit("10/minute; 100/day")
+async def verify_get(request: Request, token: str, db: AsyncSession = Depends(get_db)):
+    payload = verify_magic_link_token(token)
+    if not payload:
+        raise HTTPException(status_code=400, detail="Invalid or expired token.")
+    user_id = payload.get("user_id")
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    from datetime import datetime
+    user.verified_at = datetime.utcnow()
+    user.verified = True
+    await db.commit()
+    return VerifyResponse(message="Verification successful. Continue to onboarding.", onboarding_required=True)
 
 @router.post("/onboarding", response_model=OnboardingResponse)
 @limiter.limit("10/minute; 200/day")
-async def onboarding(request: Request, data: OnboardingRequest):
+async def onboarding(request: Request, data: OnboardingRequest, db: AsyncSession = Depends(get_db)):
     # Store behavioral profile in MongoDB
     profile = data.dict()
     await mongo_db.behavior_profiles.insert_one(profile)
+    # Mark onboarding complete on the SQL user
+    try:
+        user_id = profile.get("user_id")
+        if user_id:
+            from sqlalchemy import update
+            from app.models import User as SQLUser
+            await db.execute(update(SQLUser).where(SQLUser.id == user_id).values(onboarding_complete=True))
+            await db.commit()
+    except Exception as _e:
+        print(f"[ONBOARDING] Failed to mark onboarding_complete: {_e}")
     return OnboardingResponse(message="Onboarding data recorded.")
 
 def haversine(lat1, lon1, lat2, lon2):
@@ -467,11 +503,21 @@ async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends
         else:
             location = "unknown"
             
-        if not user or not (user.verified and user.verified_at):
-            print(f"[LOGIN] Login failed - user not found or not verified")
+        if not user:
+            print(f"[LOGIN] Login failed - user not found")
             trigger_alert("failed_login", f"Failed login for identifier {data.identifier}")
             await log_login_attempt(db, user_id=None, location=location, status="failure", details=f"identifier={data.identifier}")
-            raise HTTPException(status_code=401, detail="User not found or not verified.")
+            raise HTTPException(status_code=401, detail="User not found.")
+        if not (user.verified and user.verified_at):
+            print(f"[LOGIN] Login failed - email not verified")
+            trigger_alert("failed_login", f"Failed login (unverified) for {data.identifier}")
+            await log_login_attempt(db, user_id=user.id, location=location, status="failure", details="unverified_email")
+            raise HTTPException(status_code=403, detail={"message": "Email not verified.", "code": "EMAIL_NOT_VERIFIED"})
+        # Enforce onboarding before login
+        if not getattr(user, "onboarding_complete", False):
+            print(f"[LOGIN] Onboarding required for user {user.id}")
+            await log_login_attempt(db, user_id=user.id, location=location, status="failure", details="onboarding_required")
+            raise HTTPException(status_code=403, detail={"message": "Onboarding required.", "code": "ONBOARDING_REQUIRED"})
             
         # --- Behavioral comparison ---
         profile = {}
@@ -1023,7 +1069,7 @@ async def send_magic_link(request: Request, data: MagicLinkRequest, db: AsyncSes
         "created_at": datetime.utcnow()
     })
     # Send email with link
-    link = f"http://localhost:8000/api/auth/magic-link/verify?token={token}"
+    link = f"{_public_api_base()}/api/auth/magic-link/verify?token={token}"
     send_magic_link_email(user.email, link)
     await mongo_db.stepup_logs.insert_one({"user": data.identifier, "method": "magic_link", "timestamp": datetime.utcnow(), "success": True})
     return StepupResponse(message="Magic link sent to your email.", token=None, risk="medium")

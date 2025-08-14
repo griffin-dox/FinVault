@@ -198,6 +198,59 @@ async def adjust_risk_rule(data: AdminRiskRuleUpdateRequest, _admin=Depends(get_
     risk_rules[data.rule] = data.value
     return [{"rule": k, "value": v} for k, v in risk_rules.items()]
 
+@router.get("/telemetry/user/{user_id}", response_model=dict)
+async def get_user_telemetry(user_id: int, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
+    # Resolve user to fetch identifier-based logs
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+    identifier = user.email or user.phone or user.name
+
+    # Fetch behavior profile (Mongo)
+    profile = await mongo_db.behavior_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
+    # Recent geo events
+    geo_cursor = mongo_db.geo_events.find({"user_id": user_id}).sort("ts", -1).limit(10)
+    geo = []
+    async for doc in geo_cursor:
+        doc.pop("_id", None)
+        if doc.get("ts"):
+            try:
+                doc["ts"] = doc["ts"].isoformat()
+            except Exception:
+                pass
+        geo.append(doc)
+    # Step-up logs (stored by identifier)
+    stepup_cursor = mongo_db.stepup_logs.find({"user": identifier}).sort("timestamp", -1).limit(10)
+    stepups = []
+    async for doc in stepup_cursor:
+        doc.pop("_id", None)
+        if doc.get("timestamp"):
+            try:
+                doc["timestamp"] = doc["timestamp"].isoformat()
+            except Exception:
+                pass
+        stepups.append(doc)
+    # Risk feedback (optional)
+    fb_cursor = mongo_db.risk_feedback.find({"identifier": identifier}).sort("timestamp", -1).limit(10)
+    feedback = []
+    async for doc in fb_cursor:
+        doc.pop("_id", None)
+        if doc.get("timestamp"):
+            try:
+                doc["timestamp"] = doc["timestamp"].isoformat()
+            except Exception:
+                pass
+        feedback.append(doc)
+
+    return {
+        "user": {"id": user.id, "email": user.email, "phone": user.phone},
+        "profile": profile,
+        "geo_events": geo,
+        "stepup_logs": stepups,
+        "risk_feedback": feedback,
+    }
+
 @router.get("/heatmap-data", response_model=dict)
 async def get_heatmap_data(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     # Aggregate transactions by location and risk
