@@ -81,32 +81,83 @@ flowchart LR
 
 ## Recent Changes & Achievements
 
-- Risk engine
-  - Added ASN-aware IP weighting with `CARRIER_ASN_LIST` (down-weights carrier/mobile networks)
-  - Implemented city-level IP geo fallback when browser geolocation is missing or low-accuracy (>500m)
-  - Mirrored ASN/city fallback logic in session scoring
-  - Improved device comparison tolerance (browser brand+major, OS family, screen ±100px)
-- Telemetry & GeoIP
-  - Local MaxMind GeoLite2 (ASN + City) enrichment with auto-detection from `data/` or `backend/data/`
-  - Redis caching for IP enrichment (`GEOIP_CACHE_TTL_SEC`) to reduce mmdb reads
-  - Privacy hardening: do not store IP lat/lon; store only city/region/country (+ISO)
-  - IP extraction precedence from proxy headers; device/IP upsert and linking
-  - Known-network tracking via per-user prefix/day counters; promotion/demotion with env thresholds
-- Analytics
-  - New endpoints: `GET /telemetry/known-networks/summary` and `GET /telemetry/known-networks/decay-report`
-- Docs & DX
-  - Added/updated docs (README, CONFIG, RISK_ENGINE, TELEMETRY, API, TESTING, OPERATIONS, CONTRIBUTING)
-  - Added `backend/.env.example`
-- Fixes
-  - Corrected indentation causing reload error in auth flow; fixed SlowAPI limiter argument on telemetry analytics
+### Admin Dashboard & Analytics (Latest)
+
+- **Interactive Heatmaps**: Implemented three types of location-based heatmaps
+  - Transaction Risk Heatmap: Visualizes high-risk transaction locations with color coding
+  - Login Activity Heatmap: Shows authentication patterns and potential fraud locations
+  - User Activity Heatmap: Tracks individual user behavior patterns across locations
+- **Admin Dashboard UI**: Complete admin interface with user management, transaction monitoring, and system status
+- **Role-Based Access Control**: Enhanced RBAC middleware for secure admin operations
+- **Real-time Monitoring**: System health checks, performance metrics, and alert management
+- **Advanced Filtering**: Time-based filtering, location clustering, and risk overlays
+
+### Risk Engine Enhancements
+
+- Added ASN-aware IP weighting with `CARRIER_ASN_LIST` (down-weights carrier/mobile networks)
+- Implemented city-level IP geo fallback when browser geolocation is missing or low-accuracy (>500m)
+- Mirrored ASN/city fallback logic in session scoring
+- Improved device comparison tolerance (browser brand+major, OS family, screen ±100px)
+- Location clustering for fraud pattern detection
+
+### Telemetry & GeoIP
+
+- Local MaxMind GeoLite2 (ASN + City) enrichment with auto-detection from `data/` or `backend/data/`
+- Redis caching for IP enrichment (`GEOIP_CACHE_TTL_SEC`) to reduce mmdb reads
+- Privacy hardening: do not store IP lat/lon; store only city/region/country (+ISO)
+- IP extraction precedence from proxy headers; device/IP upsert and linking
+- Known-network tracking via per-user prefix/day counters; promotion/demotion with env thresholds
+
+### Analytics & Visualization
+
+- New heatmap endpoints: `/admin/heatmap-data`, `/admin/login-heatmap`, `/admin/user-activity-heatmap`
+- New analytics endpoints: `GET /telemetry/known-networks/summary` and `GET /telemetry/known-networks/decay-report`
+- Interactive Leaflet-powered maps with zoom, pan, and clustering
+- Export capabilities for heatmap data analysis
+
+### System Maintenance
+
+- **Cleanup Operations**: Removed all Python cache files (`__pycache__` directories) from project
+- **Performance Optimization**: Cleaner project structure with reduced disk usage
+- **Development Environment**: Improved build times and IDE performance
+
+### Docs & DX
+
+- Added/updated comprehensive docs (README, CONFIG, RISK_ENGINE, TELEMETRY, API, TESTING, OPERATIONS, CONTRIBUTING, ADMIN_DASHBOARD)
+- Added `backend/.env.example`
+- Enhanced API documentation with new endpoints
+- Created detailed admin dashboard documentation
+
+### Security & Reliability
+
+- Enhanced defensive programming throughout the application
+- Fixed authentication and transaction datetime issues
+- Improved error handling and null checks
+- Strengthened CSRF protection and session management
 
 ## In-Progress
 
-- Session guardian integration on the frontend (optional)
+### ✅ Completed Features
+
+- **Admin Dashboard**: Fully implemented with interactive heatmaps and user management
+- **Heatmap Analytics**: All three heatmap types (transaction risk, login activity, user activity) completed
+- **System Cleanup**: Python cache files removed, project structure optimized
+- **Defensive Programming**: Enhanced error handling and null checks throughout application
+- **Documentation**: Comprehensive docs updated for all new features
+
+### 🔄 Ongoing Work
+
+- Session guardian integration on the frontend (optional enhancement)
 - CI pipeline definition and initial tests (risk engine, telemetry upserts, auth flows)
 - Structured logging and error taxonomy; reduce debug prints
 - Transaction UX polish and clearer challenge/block messaging
-- Admin analytics UI for known-network summaries and decay report
+
+### 📋 Future Enhancements
+
+- Advanced behavioral analytics expansion
+- Drift detection schedules implementation
+- Performance monitoring and alerting
+- Mobile-responsive heatmap interface
 
 ## Known Issues / Limitations
 
@@ -126,13 +177,33 @@ Priority: Minor
 
 ## Next Steps / Roadmap
 
-- Stand up CI (lint/typecheck/tests + smoke tests post-deploy)
-- Health/metrics: add readiness details for Mongo/Redis and optional Prometheus metrics
-- Implement structured logging (JSON) and error monitoring
-- Finalize transaction flows and user-facing risk/challenge UX
-- Decide on Celery vs. simple async tasks; prune scaffolding accordingly
-- Expand behavioral analytics; add drift detection schedules
-- Grow test suite (risk thresholds incl. ASN/city fallback, telemetry, WebAuthn)
+### Immediate Priorities (Next Sprint)
+
+- **CI/CD Pipeline**: Implement automated testing and deployment
+- **Performance Monitoring**: Add detailed metrics and alerting
+- **User Experience**: Polish transaction flows and error messaging
+- **Security Audit**: Comprehensive security review and hardening
+
+### Medium-term Goals (1-2 Months)
+
+- **Advanced Analytics**: Expand behavioral analytics and ML models
+- **Mobile Optimization**: Responsive design improvements
+- **API Documentation**: Complete OpenAPI specification
+- **Integration Testing**: End-to-end test suite implementation
+
+### Long-term Vision (3-6 Months)
+
+- **Multi-tenant Support**: Enterprise features and user isolation
+- **Advanced Fraud Detection**: Machine learning-powered anomaly detection
+- **Real-time Alerts**: Instant notification system for suspicious activities
+- **Compliance Features**: Enhanced audit trails and regulatory reporting
+
+### Technical Debt & Maintenance
+
+- **Code Quality**: Address remaining linting issues and code smells
+- **Documentation**: Keep docs synchronized with code changes
+- **Performance**: Optimize database queries and caching strategies
+- **Testing**: Expand test coverage to critical paths
 
 ## Technical Details
 

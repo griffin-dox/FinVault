@@ -1,6 +1,6 @@
 # FinVault Backend
 
-FastAPI backend for FinVault with passwordless auth, risk scoring, RBAC, and hardened security middleware.
+FastAPI backend for FinVault with passwordless auth, risk scoring, RBAC, and advanced analytics. Features comprehensive admin dashboard with interactive heatmaps for fraud detection and real-time system monitoring.
 
 ## Features
 
@@ -10,6 +10,9 @@ FastAPI backend for FinVault with passwordless auth, risk scoring, RBAC, and har
 - Active learning only from successful logins (no learning from medium/high or failed step-ups)
 - Security: CORS, CSRF (double-submit), security headers, trusted hosts, rate limits
 - Stores behavior profiles and telemetry in MongoDB (with retention for geo tiles)
+- **Admin Dashboard**: Interactive heatmaps, user management, system monitoring
+- **Advanced Analytics**: Location-based fraud detection and pattern analysis
+- **Real-time Monitoring**: System health checks and performance metrics
 
 ## Setup
 
@@ -68,6 +71,11 @@ Useful endpoints
 
 - GET /telemetry/known-networks/summary?days=30
 - GET /telemetry/known-networks/decay-report
+- GET /admin/heatmap-data (Transaction risk heatmap)
+- GET /admin/login-heatmap (Login activity heatmap)
+- GET /admin/user-activity-heatmap (User activity heatmap)
+- GET /admin/users (User management)
+- GET /admin/system-status (System monitoring)
 
 ## Structure
 

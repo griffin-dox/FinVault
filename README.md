@@ -2,6 +2,16 @@
 
 FinVault is a secure, AI-powered banking MVP with passwordless auth (magic link, WebAuthn, behavioral biometrics), real-time risk scoring, fraud analytics, and RBAC. The React SPA talks to a FastAPI backend via REST with CSRF-protected, cookie/Bearer-auth sessions.
 
+## 🚀 Key Features
+
+- **Passwordless Authentication**: Magic link, WebAuthn, and behavioral biometrics
+- **Real-time Risk Scoring**: AI-powered fraud detection with location-based analytics
+- **Admin Dashboard**: Comprehensive admin interface with interactive heatmaps
+- **Advanced Analytics**: Location-based fraud detection and user activity visualization
+- **Role-Based Access Control**: Secure RBAC middleware for admin operations
+- **Behavioral Analytics**: Typing patterns, device fingerprinting, and network analysis
+- **GeoIP Intelligence**: MaxMind-powered location enrichment with privacy protection
+
 ---
 
 ## Architecture
@@ -13,6 +23,7 @@ Backend (FastAPI):
 - Datastores: PostgreSQL (SQLAlchemy async), MongoDB (Motor), Redis
 - Risk engine: `app/services/risk_engine.py` for login and transaction scoring
 - RBAC middleware: `app/middlewares/rbac.py`
+- Heatmap analytics: Location-based fraud detection and user activity visualization
 
 Frontend (React/Vite/TS):
 
@@ -20,6 +31,7 @@ Frontend (React/Vite/TS):
 - Authorization header fallback from stored token
 - Host fallback (localhost ↔ 127.0.0.1) to smooth local dev
 - Shared schemas in `frontend/client/shared/schema.ts`
+- Interactive admin dashboard with Leaflet-powered heatmaps
 
 ---
 
@@ -86,6 +98,7 @@ Docs quick links
 
 - Configuration: `docs/CONFIG.md`
 - API surface: `docs/API.md`
+- Admin Dashboard: `docs/ADMIN_DASHBOARD.md`
 - Risk engine details: `docs/RISK_ENGINE.md`
 - Telemetry & analytics: `docs/TELEMETRY.md`
 - Security: `docs/SECURITY.md`
