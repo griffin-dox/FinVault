@@ -4,6 +4,36 @@
 
 The telemetry system collects device and location data to power fraud detection, risk scoring, and advanced analytics. It includes real-time heatmap visualization and location-based pattern analysis.
 
+## Authentication Integration
+
+### Registration & Onboarding Flow
+
+1. **User registers** → magic link sent for email verification
+2. **Email verified** → onboarding required to establish baseline
+3. **Onboarding collects** behavioral patterns, device fingerprint, geolocation
+4. **Baseline established** in MongoDB behavior_profiles collection
+
+### Login Process
+
+1. **Client collects** device fingerprint, geolocation, behavioral data
+2. **Pre-login telemetry** sent to establish baseline comparison
+3. **Risk engine analyzes** all signals against stored profile
+4. **Post-login updates** occur only on successful low-risk logins
+
+### Behavioral Learning Process
+
+- **EWMA Updates**: Typing speed, error rates, mouse dynamics on low-risk logins
+- **Baseline Stabilization**: After 5 consecutive low-risk logins
+- **No Learning**: From medium/high risk or failed step-ups
+- **Profile Updates**: Stored in MongoDB behavior_profiles collection
+
+### Step-up Verification
+
+- **Medium risk detected** → additional verification required
+- **Multiple options**: Magic link, security questions, ambient auth, WebAuthn
+- **Successful step-up** → access granted, risk set to low
+- **No profile learning** from step-up verifications
+
 ## Data Pipeline
 
 - Client sends device metrics to POST /telemetry/device
@@ -19,6 +49,8 @@ The telemetry system collects device and location data to power fraud detection,
 - **devices**: Device_hash, normalized fingerprint, counters
 - **device_ip_events**: Linkage with counters and timestamps
 - **known_network_counters**: Per user/prefix per day sightings
+- **behavior_profiles**: User behavioral baselines and patterns
+- **geo_events**: Location history for heatmap analytics
 
 ## Analytics Endpoints
 

@@ -18,7 +18,6 @@ export default function Navbar() {
   const navigationLinks = user ? [
     { href: "/dashboard", label: "Dashboard", active: isActive("/dashboard") },
     { href: "/transactions", label: "Transactions", active: isActive("/transactions") },
-    ...(user.isAdmin ? [{ href: "/admin", label: "Admin", active: isActive("/admin"), isAdmin: true }] : []),
   ] : [];
 
   const handleLogout = () => {
@@ -45,12 +44,8 @@ export default function Navbar() {
                 <button
                   className={`text-sm font-medium transition-colors ${
                     link.active
-                      ? link.isAdmin 
-                        ? "text-red-600 border-b-2 border-red-600 pb-1" 
-                        : "text-primary border-b-2 border-primary pb-1"
-                      : link.isAdmin
-                        ? "text-red-600 hover:text-red-700"
-                        : "text-gray-700 hover:text-primary"
+                      ? "text-primary border-b-2 border-primary pb-1"
+                      : "text-gray-700 hover:text-primary"
                   }`}
                 >
                   {link.label}
@@ -75,11 +70,6 @@ export default function Navbar() {
                     <div className="text-right">
                       <p className="text-sm font-medium text-gray-700">{user.name}</p>
                       <div className="flex items-center space-x-1">
-                        {user.isAdmin && (
-                          <Badge variant="secondary" className="text-xs bg-red-100 text-red-700 border-red-200 mr-1">
-                            Admin
-                          </Badge>
-                        )}
                         <div className={`w-2 h-2 rounded-full ${
                           user.riskLevel === "low" ? "bg-green-400" :
                           user.riskLevel === "medium" ? "bg-yellow-400" : "bg-red-400"
@@ -150,12 +140,8 @@ export default function Navbar() {
                     onClick={() => setIsMobileMenuOpen(false)}
                     className={`block w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       link.active
-                        ? link.isAdmin
-                          ? "bg-red-100 text-red-700"
-                          : "bg-primary/10 text-primary"
-                        : link.isAdmin
-                          ? "text-red-600 hover:bg-red-50"
-                          : "text-gray-700 hover:bg-gray-100"
+                        ? "bg-primary/10 text-primary"
+                        : "text-gray-700 hover:bg-gray-100"
                     }`}
                   >
                     {link.label}
@@ -188,11 +174,6 @@ export default function Navbar() {
                       <div>
                         <p className="text-sm font-medium text-gray-900">{user.name}</p>
                         <div className="flex items-center space-x-1">
-                          {user.isAdmin && (
-                            <Badge variant="secondary" className="text-xs bg-red-100 text-red-700 border-red-200 mr-1">
-                              Admin
-                            </Badge>
-                          )}
                           <div className={`w-2 h-2 rounded-full ${
                             user.riskLevel === "low" ? "bg-green-400" :
                             user.riskLevel === "medium" ? "bg-yellow-400" : "bg-red-400"

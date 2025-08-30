@@ -6,6 +6,48 @@ Location: `backend/app/services/risk_engine.py`
 
 The risk engine provides real-time fraud detection and risk scoring for authentication and transactions. It combines multiple signals including device fingerprinting, behavioral analytics, geolocation, and network analysis to assign risk scores.
 
+## Authentication Flow
+
+### 1. Registration & Email Verification
+
+1. **User registers** with email, name, phone, country
+2. **Magic link sent** to email for verification
+3. **Email verification** using magic link token
+4. **Onboarding required** to establish behavioral baseline
+
+### 2. Primary Login Process
+
+1. **User enters identifier** (email/phone/name)
+2. **Behavioral challenge** collected (typing/mouse/touch patterns)
+3. **Device telemetry** gathered (browser, OS, screen, timezone, geolocation)
+4. **Risk assessment** evaluates all signals against user profile
+5. **Three outcomes** based on risk score:
+   - **Low Risk (≤40)**: Direct login success + profile learning
+   - **Medium Risk (41-60)**: Step-up verification required
+   - **High Risk (>60)**: Login blocked
+
+### 3. Step-up Verification (Medium Risk)
+
+When medium risk is detected, user can choose from:
+
+- **Magic Link**: Email verification for step-up
+- **Security Question**: Answer pre-configured security question
+- **Ambient Authentication**: Device/environment verification
+- **WebAuthn**: If previously registered
+
+### 4. Behavioral Learning
+
+- **EWMA Updates**: Only on successful low-risk logins
+- **Baseline Stabilization**: After 5 consecutive low-risk logins
+- **No Learning**: From medium/high risk or failed step-ups
+- **Profile Updates**: Typing speed, error rates, mouse dynamics, device patterns
+
+### 5. WebAuthn Integration
+
+- **Passwordless Option**: Available for enrolled users
+- **Registration**: Separate from main login flow
+- **Authentication**: Alternative to behavioral challenges
+
 ## Signals
 
 - **Device**: Browser brand + major version, OS family, screen resolution (±100px tolerance), timezone
@@ -48,6 +90,28 @@ The risk engine powers advanced heatmap visualization features:
 - **Login Activity Heatmap**: Shows authentication patterns and anomalies
 - **User Activity Heatmap**: Tracks user behavior across locations
 - **Location Clustering**: Groups nearby activities for pattern analysis
+
+## Behavioral Analysis
+
+### Typing Patterns
+
+- **WPM (Words Per Minute)**: Z-score analysis vs user baseline
+- **Error Rate**: Deviation from expected typing accuracy
+- **Keystroke Timing**: Inter-keypress timing patterns
+- **Adaptive baselines** using Exponential Weighted Moving Average (EWMA)
+
+### Mouse/Touch Dynamics
+
+- **Path Length**: Total movement distance during interaction
+- **Click Patterns**: Click frequency and timing
+- **Movement Velocity**: Cursor/touch movement speed analysis
+
+### Device Fingerprinting
+
+- **Browser Analysis**: Brand, version, and feature detection
+- **OS Detection**: Operating system family identification
+- **Screen Properties**: Resolution with tolerance for minor variations
+- **Timezone Validation**: Geographic consistency checking
 
 ## Configuration
 

@@ -1,11 +1,13 @@
 # FinVault
 
-FinVault is a secure, AI-powered banking MVP with passwordless auth (magic link, WebAuthn, behavioral biometrics), real-time risk scoring, fraud analytics, and RBAC. The React SPA talks to a FastAPI backend via REST with CSRF-protected, cookie/Bearer-auth sessions.
+FinVault is a secure, AI-powered banking MVP with advanced authentication, real-time risk scoring, fraud analytics, and RBAC. The React SPA talks to a FastAPI backend via REST with CSRF-protected, cookie/Bearer-auth sessions.
 
 ## 🚀 Key Features
 
-- **Passwordless Authentication**: Magic link, WebAuthn, and behavioral biometrics
-- **Real-time Risk Scoring**: AI-powered fraud detection with location-based analytics
+- **Multi-Factor Authentication**: WebAuthn, behavioral biometrics, and step-up verification
+- **Email Verification**: Magic links used once for email verification after registration
+- **Step-up Authentication**: Magic links and security questions for medium-risk logins
+- **Real-time Risk Scoring**: AI-powered fraud detection with location-based analytics (Low ≤40, Medium 41-60, High >60)
 - **Admin Dashboard**: Comprehensive admin interface with interactive heatmaps
 - **Advanced Analytics**: Location-based fraud detection and user activity visualization
 - **Role-Based Access Control**: Secure RBAC middleware for admin operations

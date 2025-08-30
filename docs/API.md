@@ -4,14 +4,21 @@ Base path: `/`
 
 ## Authentication
 
-- POST /auth/login
-- POST /auth/register
-- POST /auth/verify
-- POST /auth/ambient-verify
-- POST /auth/context-question
-- POST /auth/context-answer
-- POST /auth/behavioral-verify
-- ... and WebAuthn endpoints
+- POST /auth/login - **Primary login** with identifier, behavioral challenge, and risk scoring
+- POST /auth/register - User registration (creates account, sends verification email)
+- POST /auth/verify - Email verification using magic link token
+- GET /auth/verify - Email verification link handler (for emailed links)
+- POST /auth/onboarding - Establish behavioral baseline after verification
+- POST /auth/magic-link - Request magic link for step-up verification (medium risk)
+- GET /auth/magic-link/verify - Verify magic link for step-up authentication
+- POST /auth/context-question - Get security question for step-up verification
+- POST /auth/context-answer - Answer security question for step-up verification
+- POST /auth/ambient-verify - Ambient authentication using device/environment data
+- POST /auth/behavioral-verify - Behavioral challenge verification
+- POST /auth/webauthn/register/begin - WebAuthn registration initiation
+- POST /auth/webauthn/register/complete - WebAuthn registration completion
+- POST /auth/webauthn/auth/begin - WebAuthn authentication initiation
+- POST /auth/webauthn/auth/complete - WebAuthn authentication completion
 
 ## Admin Dashboard
 

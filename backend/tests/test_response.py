@@ -3,7 +3,7 @@
 Test the new response format
 """
 from app.schemas.transaction import TransactionRequest, TransactionResponse
-from datetime import datetime
+from datetime import datetime, timezone
 
 # Test the new response format
 data = {
@@ -28,7 +28,7 @@ response_data = {
     'description': getattr(req, 'description', None),
     'risk_score': 40,
     'status': 'completed',
-    'created_at': datetime.now()
+    'created_at': datetime.now(timezone.utc)
 }
 
 transaction_response = TransactionResponse(**response_data)

@@ -1,18 +1,18 @@
 # FinVault Backend
 
-FastAPI backend for FinVault with passwordless auth, risk scoring, RBAC, and advanced analytics. Features comprehensive admin dashboard with interactive heatmaps for fraud detection and real-time system monitoring.
+FastAPI backend for FinVault with advanced authentication, risk scoring, RBAC, and analytics. Features comprehensive admin dashboard with interactive heatmaps for fraud detection and real-time system monitoring.
 
 ## Features
 
-- Passwordless auth: magic link, WebAuthn, behavioral step-up
-- Login/transaction risk scoring (low ≤ 40, medium 41–60, high > 60)
-- Step-up policy: successful verification grants session with risk=low
-- Active learning only from successful logins (no learning from medium/high or failed step-ups)
-- Security: CORS, CSRF (double-submit), security headers, trusted hosts, rate limits
-- Stores behavior profiles and telemetry in MongoDB (with retention for geo tiles)
+- **Multi-Factor Authentication**: WebAuthn, behavioral biometrics, and step-up verification
+- **Email Verification**: Magic links used once for email verification after registration
+- **Step-up Authentication**: Magic links and security questions for medium-risk logins
+- **Risk Scoring**: Real-time fraud detection (Low ≤40, Medium 41-60, High >60)
+- **Behavioral Learning**: EWMA-based profile updates only on successful low-risk logins
 - **Admin Dashboard**: Interactive heatmaps, user management, system monitoring
 - **Advanced Analytics**: Location-based fraud detection and pattern analysis
-- **Real-time Monitoring**: System health checks and performance metrics
+- **Security**: CORS, CSRF (double-submit), security headers, trusted hosts, rate limits
+- **Onboarding**: Required behavioral baseline establishment after verification
 
 ## Setup
 

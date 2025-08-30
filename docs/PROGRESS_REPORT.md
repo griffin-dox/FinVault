@@ -81,6 +81,15 @@ flowchart LR
 
 ## Recent Changes & Achievements
 
+### Authentication System Corrections
+
+- **Accurate Magic Link Usage**: Magic links used ONLY for email verification after registration and step-up authentication when medium risk is detected
+- **Primary Login Flow**: Identifier-based login (email/phone/name) with behavioral challenges and comprehensive risk scoring
+- **Multi-Factor Step-up**: Medium risk triggers multiple verification options (magic link, security questions, ambient auth, WebAuthn)
+- **Behavioral Biometrics**: Integrated typing and mouse dynamics for continuous authentication with EWMA-based learning
+- **WebAuthn Integration**: Passwordless authentication available for enrolled users as alternative to behavioral challenges
+- **Onboarding Process**: Required after email verification to establish behavioral baselines before first login
+
 ### Admin Dashboard & Analytics (Latest)
 
 - **Interactive Heatmaps**: Implemented three types of location-based heatmaps

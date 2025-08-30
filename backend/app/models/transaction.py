@@ -1,7 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, ForeignKey, Enum
 from app.models.user import Base
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 
 class TransactionStatus(enum.Enum):
     pending = "pending"
@@ -22,4 +22,4 @@ class Transaction(Base):
     description = Column(String, nullable=True)
     risk_score = Column(Float, nullable=True)
     status = Column(String, default=TransactionStatus.pending.value, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False) 
+    created_at = Column(DateTime(timezone=True), default=datetime.now(timezone.utc), nullable=False) 

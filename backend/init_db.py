@@ -44,7 +44,7 @@ async def create_sample_data(session: AsyncSession):
                 country="US",
                 role="user",
                 verified=True,
-                verified_at=datetime.now(),  # Remove timezone.utc
+                verified_at=datetime.now(timezone.utc),
                 onboarding_complete=True
             )
 
@@ -78,7 +78,7 @@ async def create_sample_data(session: AsyncSession):
                 description="Sample transfer to checking account",
                 risk_score=25,
                 status="completed",
-                created_at=datetime.now()  # Remove timezone.utc
+                created_at=datetime.now(timezone.utc)
             ),
             Transaction(
                 user_id=sample_user_id,
@@ -91,7 +91,7 @@ async def create_sample_data(session: AsyncSession):
                 description="Sample transfer to savings account",
                 risk_score=15,
                 status="completed",
-                created_at=datetime.now()  # Remove timezone.utc
+                created_at=datetime.now(timezone.utc)
             ),
             Transaction(
                 user_id=sample_user_id,
@@ -104,7 +104,7 @@ async def create_sample_data(session: AsyncSession):
                 description="Sample large transfer",
                 risk_score=45,
                 status="pending",
-                created_at=datetime.now()  # Remove timezone.utc
+                created_at=datetime.now(timezone.utc)
             )
         ]
 
