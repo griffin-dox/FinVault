@@ -1,5 +1,5 @@
-from typing import Optional, Dict, Any
-from datetime import datetime
+from typing import Optional, Dict, Any, cast
+from datetime import datetime, timezone
 
 from app.database import mongo_db, redis_client
 
@@ -36,13 +36,13 @@ async def validate_behavior_signature(session_id: str, token_claims: Dict[str, A
     cur_sig = await compute_behavior_signature(current_device or {}, ip_prefix)
     if cur_sig and token_sig != cur_sig:
         key = f"session:{session_id}"
-        await redis_client.hset(key, mapping={
+        await cast(Any, redis_client).hset(key, mapping={
             "risk_level": "medium",
             "risk_score": "50",
-            "updated_at": datetime.utcnow().isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
             "reason": "behavior_signature_mismatch",
         })
-        await redis_client.expire(key, 3600)
+        await cast(Any, redis_client).expire(key, 3600)
         return False
     return True
 
@@ -53,7 +53,7 @@ async def run_drift_scan(limit: int = 200):
     """
     if mongo_db is None or not redis_client:
         return {"status": "skipped"}
-    cursor = mongo_db.session_telemetry.find({}).sort("ts", -1).limit(limit)
+    cursor = cast(Any, mongo_db).session_telemetry.find({}).sort("ts", -1).limit(limit)
     users_score = {}
     async for doc in cursor:
         uid = doc.get("user_id")

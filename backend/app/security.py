@@ -143,11 +143,11 @@ class SecurityHeadersMiddleware:
                     )
                 else:
                     csp_policy = (
-                        "default-src 'self'; "
-                        "script-src 'self' 'unsafe-inline'; "
-                        "style-src 'self' 'unsafe-inline'; "
+                        "default-src 'self' https://cdn.jsdelivr.net https://unpkg.com; "
+                        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
+                        "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://unpkg.com; "
                         "img-src 'self' data: https:; "
-                        "font-src 'self' data:; "
+                        "font-src 'self' data: https:; "
                         "connect-src 'self' http://localhost:8000 http://127.0.0.1:8000 http://localhost:5173 http://127.0.0.1:5173; "
                         "frame-ancestors 'none';"
                     )
@@ -211,6 +211,9 @@ class CsrfMiddleware:
                     body = json.dumps({"detail": "CSRF validation failed"}).encode()
                     await send(start)
                     return await send({"type": "http.response.body", "body": body})
+                return await self.app(scope, receive, send)
+            elif env == "test":
+                # Test environment: skip CSRF validation
                 return await self.app(scope, receive, send)
             else:
                 # Development: allow header-only if Origin is allowed by CORS

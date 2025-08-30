@@ -34,8 +34,8 @@ export default function Register() {
 
   const registerMutation = useMutation({
     mutationFn: async (data: RegisterInput) => {
-      // Filter out frontend-only fields before sending to backend
-      const { country, agreeToTerms, ...backendData } = data;
+      // Include country; omit frontend-only terms flag
+      const { agreeToTerms, ...backendData } = data;
       const response = await apiRequest("POST", "/api/auth/register", backendData);
       return await response.json();
     },
@@ -49,8 +49,11 @@ export default function Register() {
     },
     onError: (error: any) => {
       console.log("Registration error object:", error);
-      if (error && error.detail && typeof error.detail === "object" && error.detail.message === "User already exists.") {
-        const { verified, onboarding_complete } = error.detail;
+      const detail = error?.detail || error?.data?.detail;
+      const msg: string | undefined = typeof detail === 'object' ? detail.message : undefined;
+      const isDuplicate = msg === "User already exists." || msg === "Email already registered." || msg === "Phone already registered.";
+      if (detail && typeof detail === "object" && isDuplicate) {
+        const { verified, onboarding_complete } = detail;
         if (!verified) {
           toast({
             title: "Email Verification Required",
@@ -76,7 +79,7 @@ export default function Register() {
       }
       toast({
         title: "Registration Failed",
-        description: error?.detail?.message || error?.message || "Something went wrong",
+        description: msg || error?.message || "Something went wrong",
         variant: "destructive",
       });
     },

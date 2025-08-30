@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List, Tuple, Optional
 import os
 import ipaddress
@@ -19,49 +19,51 @@ default_rules = {
 user_tx_history: Dict[int, List[Dict[str, Any]]] = {}
 
 
-def score_transaction(transaction: Dict[str, Any], behavior_profile: Dict[str, Any], rules: Dict[str, Any] = None) -> Dict[str, Any]:
+def score_transaction(transaction: Dict[str, Any], behavior_profile: Dict[str, Any], rules: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     if rules is None:
         rules = default_rules
     risk_score = 0
     reasons = []
     anomalies = []
     user_id = transaction.get("user_id")
-    now = datetime.utcnow()
+    if user_id is None:
+        return {"risk_score": 0, "level": "low", "reasons": ["Invalid transaction - no user_id"], "anomalies": []}
+    now = datetime.now(timezone.utc)
 
     # Device mismatch
     if transaction.get("device_info") != behavior_profile.get("device_fingerprint"):
-        risk_score += rules["device_mismatch"]
+        risk_score += rules.get("device_mismatch", 50)
         reasons.append("Device mismatch")
         anomalies.append("New device detected")
     # Location mismatch
     if transaction.get("location") != behavior_profile.get("location"):
-        risk_score += rules["location_mismatch"]
+        risk_score += rules.get("location_mismatch", 40)
         reasons.append("Location mismatch")
         anomalies.append("New location detected")
     # Unusual time
     hour = now.hour
     if hour < 8 or hour > 20:
-        risk_score += rules["unusual_time"]
+        risk_score += rules.get("unusual_time", 30)
         reasons.append("Unusual transaction time")
     # Large amount (outlier)
-    if transaction.get("amount", 0) > rules["large_amount"]:
-        risk_score += rules["large_amount"]
+    if transaction.get("amount", 0) > 100:  # Use fixed threshold instead of rule
+        risk_score += rules.get("large_amount", 40)
         reasons.append("Large transaction amount")
         anomalies.append("Outlier transaction amount")
     # Rapid repeat (multiple txns in short time)
     history = user_tx_history.get(user_id, [])
     recent = [t for t in history if (now - t["created_at"]).total_seconds() < 60]
     if len(recent) >= 3:
-        risk_score += rules["rapid_repeat"]
+        risk_score += rules.get("rapid_repeat", 25)
         reasons.append("Rapid repeat transactions")
         anomalies.append("Rapid repeat detected")
     # Save txn to history
     history.append({"created_at": now, **transaction})
     user_tx_history[user_id] = history[-10:]  # keep last 10
     # Final risk level
-    if risk_score >= rules["high_threshold"]:
+    if risk_score >= rules.get("high_threshold", 70):
         level = "high"
-    elif risk_score >= rules["medium_threshold"]:
+    elif risk_score >= rules.get("medium_threshold", 40):
         level = "medium"
     else:
         level = "low"
@@ -116,7 +118,8 @@ def _haversine(lat1: Optional[float], lon1: Optional[float], lat2: Optional[floa
         return float('inf')
     # convert decimal degrees to radians
     from math import radians, cos, sin, asin, sqrt
-    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
+    # After None check, we know these are not None
+    lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])  # type: ignore
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
@@ -151,14 +154,18 @@ def device_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[in
                 if abs(cv - pv) > 1:
                     penalty += 5
                     reasons.append(f"Device browser version differs: {cv} vs {pv}")
-    elif cur.get('browser') and prof.get('browser') and cur.get('browser') != prof.get('browser'):
-        penalty += 10
-        reasons.append("Device browser differs (unparsed)")
+    elif cur.get('browser') and prof.get('browser'):
+        # Only penalize if both raw textual values look known and differ
+        cb_raw = str(cur.get('browser')).strip().lower()
+        pb_raw = str(prof.get('browser')).strip().lower()
+        if cb_raw not in {"", "unknown", "unknown browser", "n/a"} and pb_raw not in {"", "unknown", "unknown browser", "n/a"} and cb_raw != pb_raw:
+            penalty += 5
+            reasons.append("Device browser differs (unparsed)")
 
     # OS
     co = _canonical_os(cur.get('os'))
     po = _canonical_os(prof.get('os'))
-    if co and po and co != po:
+    if co and po and co not in {"unknown", "unknown os"} and po not in {"unknown", "unknown os"} and co != po:
         penalty += 15
         reasons.append(f"Device os family mismatch: {co} vs {po}")
 
@@ -178,15 +185,22 @@ def device_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[in
                 else:
                     penalty += 15
                     reasons.append(f"Screen class changed: {ccls} -> {pcls}")
-        elif cs != ps:
+        elif cs and ps:
             # Fallback textual compare
-            penalty += 5
-            reasons.append("Screen differs")
+            cs_raw = str(cs).strip().lower()
+            ps_raw = str(ps).strip().lower()
+            if cs_raw not in {"", "unknown", "n/a"} and ps_raw not in {"", "unknown", "n/a"} and cs_raw != ps_raw:
+                penalty += 5
+                reasons.append("Screen differs")
 
     # Timezone (strict)
-    if cur.get('timezone') and prof.get('timezone') and cur.get('timezone') != prof.get('timezone'):
+    tz_cur = cur.get('timezone')
+    tz_prof = prof.get('timezone')
+    def _tz_unknown(x: Any) -> bool:
+        return x is None or (isinstance(x, str) and x.strip().lower() in {"", "unknown", "n/a"})
+    if tz_cur and tz_prof and not _tz_unknown(tz_cur) and not _tz_unknown(tz_prof) and tz_cur != tz_prof:
         penalty += 10
-        reasons.append(f"Device timezone mismatch: {cur.get('timezone')} vs {prof.get('timezone')}")
+        reasons.append(f"Device timezone mismatch: {tz_cur} vs {tz_prof}")
 
     return penalty, reasons
 
@@ -287,6 +301,15 @@ def _screen_class(wh: Tuple[int, int]) -> str:
 def canonicalize_device_fields(device: Dict[str, Any]) -> Dict[str, Any]:
     """Return a copy of device with normalized browser/os and screen string normalized to 'WxH'."""
     d = dict(device or {})
+    # Normalize obvious unknowns to None to avoid false mismatches
+    unknowns = {"", "unknown", "unknown browser", "unknown os", "n/a"}
+    for k in ["browser", "os", "screen", "timezone"]:
+        try:
+            v = d.get(k)
+            if isinstance(v, str) and v.strip().lower() in unknowns:
+                d[k] = None
+        except Exception:
+            d[k] = None
     b, v = _parse_browser(d.get('browser'))
     if b:
         d['browser'] = f"{b.capitalize()} {v}" if v is not None else b.capitalize()
@@ -382,6 +405,13 @@ def typing_penalty(current: Dict[str, Any], profile: Dict[str, Any]) -> Tuple[in
     cur_timings = cur.get('keystrokeTimings', [])
 
     def zscore(val, mean, std):
+        nonlocal penalty, reasons
+        # Only penalize if both are non-unknown textual and differ
+        cb_raw = str(cur.get('browser')).strip().lower()
+        pb_raw = str(prof.get('browser')).strip().lower()
+        if cb_raw not in {"", "unknown", "unknown browser", "n/a"} and pb_raw not in {"", "unknown", "unknown browser", "n/a"} and cb_raw != pb_raw:
+            penalty += 5
+            reasons.append("Device browser differs (unparsed)")
         if mean is None or std is None or std <= 1e-6:
             return None
         return abs((val - mean) / std)

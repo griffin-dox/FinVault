@@ -3,11 +3,12 @@ import os
 import secrets
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
-from fastapi.exception_handlers import RequestValidationError
+from fastapi.exceptions import RequestValidationError
 from fastapi.exceptions import HTTPException
 from dotenv import load_dotenv
 from slowapi.middleware import SlowAPIMiddleware
 from slowapi.errors import RateLimitExceeded
+from typing import cast, Any
 
 from app.database import AsyncSessionLocal, mongo_db, redis_client, ensure_mongo_indexes
 from app.api import auth, transaction, dashboard, admin, behavior_profile, geo, util, telemetry
@@ -19,7 +20,15 @@ from app.services.rate_limit import limiter, rate_limit_exceeded_handler
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '../.env'))
 validate_environment()
 
-app = FastAPI(title="FinVault Backend", version="0.1.0")
+ENV = os.getenv("ENVIRONMENT", "development").lower()
+enable_docs = ENV != "production"
+app = FastAPI(
+    title="FinVault Backend",
+    version="0.1.0",
+    openapi_url="/openapi.json",
+    docs_url="/docs" if enable_docs else None,
+    redoc_url="/redoc" if enable_docs else None,
+)
 
 # JSON error responses
 @app.exception_handler(HTTPException)
@@ -61,15 +70,22 @@ def health_check():
 def get_csrf_token():
     """Issue a CSRF token and return it with Set-Cookie and X-CSRF-Token on the SAME response."""
     token = secrets.token_urlsafe(32)
-    cookie_kwargs = {"samesite": "none", "path": "/"}
+    resp = JSONResponse({"csrf": token})
+
+    # Set cookie with proper parameters
+    cookie_kwargs = {
+        "samesite": "none",
+        "path": "/",
+        "httponly": True
+    }
+
     if os.getenv("ENVIRONMENT", "development").lower() == "production":
         cookie_kwargs["secure"] = True
-    resp = JSONResponse({"csrf": token})
+
     resp.set_cookie("csrf_token", token, **cookie_kwargs)
     resp.headers["X-CSRF-Token"] = token
     return resp
 
-ENV = os.getenv("ENVIRONMENT", "development").lower()
 if ENV != "production":
     @app.get("/test-cors")
     def test_cors():
@@ -84,7 +100,7 @@ async def redis_check():
     if not redis_client:
         return {"status": "not configured"}
     try:
-        pong = await redis_client.ping()
+        pong = await cast(Any, redis_client).ping()
         return {"status": "connected", "ping": pong}
     except Exception as e:
         return {"status": "error", "detail": str(e)}

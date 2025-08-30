@@ -84,6 +84,9 @@ export default function Onboarding() {
   const touchZoneRef = useRef<HTMLDivElement>(null);
   
   const deviceInfo = useDeviceInfo();
+  const isKnown = (v?: string) => !!v && v !== "Unknown" && v.trim() !== "";
+  const deviceReady = isKnown(deviceInfo.browser) && isKnown(deviceInfo.os) && isKnown(deviceInfo.screen) && isKnown(deviceInfo.timezone);
+  const [telemetrySent, setTelemetrySent] = useState(false);
   const { toast } = useToast();
   
   const {
@@ -342,12 +345,47 @@ export default function Onboarding() {
 
   const completeMutation = useMutation({
     mutationFn: async () => {
+      // Ensure device telemetry is recorded before creating profile
+      if (deviceReady && !telemetrySent) {
+        try {
+          const res = await apiRequest("POST", "/api/telemetry/device", { device: {
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            screen: deviceInfo.screen,
+            timezone: deviceInfo.timezone,
+            language: deviceInfo.language,
+            userAgent: deviceInfo.userAgent,
+            screenWidth: deviceInfo.screenWidth,
+            screenHeight: deviceInfo.screenHeight,
+            viewportWidth: deviceInfo.viewportWidth,
+            viewportHeight: deviceInfo.viewportHeight,
+            pixelRatio: deviceInfo.pixelRatio,
+            deviceClass: deviceInfo.deviceClass,
+          }});
+          if (res.ok) setTelemetrySent(true);
+        } catch {}
+      }
       const { verification_status, risk_level } = getVerificationStatusAndRisk();
       // 1) Store profile for risk engine
       const response = await apiRequest("POST", "/api/behavior-profile", {
         typing_pattern: behavioralData.typingAnalysis,
         mouse_dynamics: behavioralData.mouseMovement,
-        device_fingerprint: deviceInfo,
+        touch_interaction: behavioralData.touchInteraction,
+        scroll_behavior: behavioralData.scrollBehavior,
+        drag_drop: behavioralData.dragDrop,
+        geo: behavioralData.locationData ? {
+          latitude: behavioralData.locationData.latitude,
+          longitude: behavioralData.locationData.longitude,
+          accuracy: behavioralData.locationData.accuracy,
+          fallback: false,
+        } : undefined,
+        device_fingerprint: deviceReady ? deviceInfo : {
+          browser: deviceInfo.browser,
+          os: deviceInfo.os,
+          screen: deviceInfo.screen,
+          timezone: deviceInfo.timezone,
+          language: deviceInfo.language,
+        },
         verification_status,
         risk_level,
       });
@@ -356,7 +394,22 @@ export default function Onboarding() {
       await apiRequest("POST", "/api/auth/onboarding", {
         typing_pattern: behavioralData.typingAnalysis,
         mouse_dynamics: behavioralData.mouseMovement,
-        device_fingerprint: deviceInfo,
+        touch_interaction: behavioralData.touchInteraction,
+        scroll_behavior: behavioralData.scrollBehavior,
+        drag_drop: behavioralData.dragDrop,
+        geo: behavioralData.locationData ? {
+          latitude: behavioralData.locationData.latitude,
+          longitude: behavioralData.locationData.longitude,
+          accuracy: behavioralData.locationData.accuracy,
+          fallback: false,
+        } : undefined,
+        device_fingerprint: deviceReady ? deviceInfo : {
+          browser: deviceInfo.browser,
+          os: deviceInfo.os,
+          screen: deviceInfo.screen,
+          timezone: deviceInfo.timezone,
+          language: deviceInfo.language,
+        },
       });
       return profileResult;
     },
@@ -380,6 +433,13 @@ export default function Onboarding() {
         title: "Complete All Activities",
         description: "Please finish all behavioral activities before proceeding.",
         variant: "destructive",
+      });
+      return;
+    }
+    if (!deviceReady) {
+      toast({
+        title: "Collecting Device Info",
+        description: "We’re finalizing your device profile. Please wait a moment…",
       });
       return;
     }

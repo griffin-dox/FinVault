@@ -9,6 +9,7 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     phone = Column(String, unique=True, index=True, nullable=True)
+    country = Column(String, nullable=True)
     verified_at = Column(DateTime, nullable=True)
     role = Column(String, default="user", nullable=False)
     # Add these lines:

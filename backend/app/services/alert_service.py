@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from datetime import datetime
+from typing import cast
 
 alerts: List[Dict[str, Any]] = []
 
@@ -10,12 +11,12 @@ def trigger_alert(event_type: str, details: str):
     }
     alerts.append(alert)
     print(f"[ALERT] {event_type}: {details}")
-    # Dispatch asynchronously via Celery (best-effort)
     try:
-        from app.services.tasks import dispatch_alert
-        dispatch_alert.delay(event_type, details)
+        from app.services.tasks import dispatch_alert as dispatch_alert_task
+        cast(Any, dispatch_alert_task).delay(event_type, details)
     except Exception as e:
         # Fallback to sync log only
+        print(f"[ALERT] Celery dispatch failed: {e}")
         print(f"[ALERT] Celery dispatch failed: {e}")
     return alert
 

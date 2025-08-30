@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any, cast
 from app.database import mongo_db
 from app.middlewares.rbac import require_roles
 
@@ -15,7 +15,7 @@ async def user_heatmap(
     # Ownership enforcement for non-admins
     if claims.get("role") != "admin" and claims.get("user_id") != user_id:
         raise HTTPException(status_code=403, detail="Forbidden")
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     pipeline = [
         {"$match": {"user_id": user_id, "ts": {"$gte": since}}},
         {"$group": {
@@ -33,6 +33,10 @@ async def user_heatmap(
         {"$sort": {"count": -1}}
     ]
     results: List[Dict[str, Any]] = []
-    async for doc in mongo_db.geo_events.aggregate(pipeline):
+    if mongo_db is None:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+    db = cast(Any, mongo_db)
+    cursor = db["geo_events"].aggregate(pipeline)
+    async for doc in cursor:
         results.append(doc)
     return {"tiles": results, "since": since.isoformat()}

@@ -1,5 +1,5 @@
 import os
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import sessionmaker
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING
@@ -13,8 +13,8 @@ load_dotenv()
 POSTGRES_URI = os.getenv("POSTGRES_URI")
 if POSTGRES_URI:
     engine = create_async_engine(POSTGRES_URI, echo=True)
-    AsyncSessionLocal = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
+    AsyncSessionLocal = async_sessionmaker(
+        bind=engine, class_=AsyncSession, expire_on_commit=False
     )
 else:
     engine = None
@@ -38,7 +38,7 @@ else:
 
 # Database dependency
 async def get_db():
-    if AsyncSessionLocal:
+    if AsyncSessionLocal is not None:
         async with AsyncSessionLocal() as session:
             yield session
     else:

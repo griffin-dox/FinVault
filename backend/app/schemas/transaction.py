@@ -6,10 +6,12 @@ from typing import List
 class TransactionBase(BaseModel):
     user_id: int
     amount: float
-    target_account: str
-    device_info: Optional[str]
-    location: Optional[str]
-    intent: Optional[str]
+    target_account: Optional[str] = None
+    recipient: Optional[str] = None
+    device_info: Optional[str] = None
+    location: Optional[str] = None
+    intent: Optional[str] = None
+    description: Optional[str] = None
 
 class TransactionCreate(TransactionBase):
     pass

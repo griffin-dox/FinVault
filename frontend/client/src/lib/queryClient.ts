@@ -71,6 +71,8 @@ function getStoredToken(): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
     const t = localStorage.getItem("securebank_token");
+    console.log("[TOKEN DEBUG] localStorage keys:", Object.keys(localStorage));
+    console.log("[TOKEN DEBUG] securebank_token value:", t ? t.substring(0, 20) + "..." : "null");
     return t || undefined;
   } catch {
     return undefined;
@@ -146,6 +148,15 @@ export async function apiRequest(
     csrf = await ensureCsrfToken(buildApiUrl);
   }
   
+  const storedToken = getStoredToken();
+  if (isDevelopment) {
+    console.log(`[API Request] ${method} ${url}`);
+    console.log(`[API Request] Token found:`, !!storedToken);
+    if (storedToken) {
+      console.log(`[API Request] Token length:`, storedToken.length);
+    }
+  }
+  
   try {
   const res = await fetchWithLocalFallback(buildApiUrl(url), {
       method,
@@ -153,7 +164,7 @@ export async function apiRequest(
         ...(data ? { "Content-Type": "application/json" } : {}),
         "Accept": "application/json",
         "X-Requested-With": "XMLHttpRequest",
-  ...(getStoredToken() ? { Authorization: `Bearer ${getStoredToken()}` } : {}),
+  ...(storedToken ? { Authorization: `Bearer ${storedToken}` } : {}),
   ...(csrf ? { "X-CSRF-Token": csrf } : {}),
       },
       body: data ? JSON.stringify(data) : undefined,

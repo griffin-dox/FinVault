@@ -55,7 +55,8 @@ def lookup_asn(ip: str) -> Dict[str, Any]:
     if not ip or _ASN_READER is None:
         return {}
     try:
-        rec = _ASN_READER.get(ip) or {}
+        raw = _ASN_READER.get(ip)
+        rec: Dict[str, Any] = raw if isinstance(raw, dict) else {}
         return {
             "asn": rec.get("autonomous_system_number"),
             "asn_org": rec.get("autonomous_system_organization"),
@@ -69,19 +70,57 @@ def lookup_city(ip: str) -> Dict[str, Any]:
     if not ip or _CITY_READER is None:
         return {}
     try:
-        rec = _CITY_READER.get(ip) or {}
-        city_name = ((rec.get("city") or {}).get("names") or {}).get("en")
-        country = ((rec.get("country") or {}).get("names") or {}).get("en")
-        country_iso = (rec.get("country") or {}).get("iso_code")
-        subs = rec.get("subdivisions") or []
-        region = None
-        region_iso = None
-        if subs:
-            region = ((subs[0].get("names") or {}).get("en"))
-            region_iso = subs[0].get("iso_code")
-        loc = rec.get("location") or {}
-        lat = loc.get("latitude")
-        lon = loc.get("longitude")
+        raw = _CITY_READER.get(ip)
+        rec: Dict[str, Any] = raw if isinstance(raw, dict) else {}
+
+        city_name: Optional[str] = None
+        city_val = rec.get("city")
+        if isinstance(city_val, dict):
+            names = city_val.get("names")
+            if isinstance(names, dict):
+                en_name = names.get("en")
+                if isinstance(en_name, str):
+                    city_name = en_name
+
+        country: Optional[str] = None
+        country_iso: Optional[str] = None
+        country_val = rec.get("country")
+        if isinstance(country_val, dict):
+            c_names = country_val.get("names")
+            if isinstance(c_names, dict):
+                en_country = c_names.get("en")
+                if isinstance(en_country, str):
+                    country = en_country
+            iso_val = country_val.get("iso_code")
+            if isinstance(iso_val, str):
+                country_iso = iso_val
+
+        region: Optional[str] = None
+        region_iso: Optional[str] = None
+        subs_val = rec.get("subdivisions")
+        if isinstance(subs_val, list) and subs_val:
+            first = subs_val[0]
+            if isinstance(first, dict):
+                s_names = first.get("names")
+                if isinstance(s_names, dict):
+                    en_region = s_names.get("en")
+                    if isinstance(en_region, str):
+                        region = en_region
+                iso = first.get("iso_code")
+                if isinstance(iso, str):
+                    region_iso = iso
+
+        lat: Optional[float] = None
+        lon: Optional[float] = None
+        loc_val = rec.get("location")
+        if isinstance(loc_val, dict):
+            lat_val = loc_val.get("latitude")
+            lon_val = loc_val.get("longitude")
+            if isinstance(lat_val, (int, float)):
+                lat = float(lat_val)
+            if isinstance(lon_val, (int, float)):
+                lon = float(lon_val)
+
         return {
             "city": city_name,
             "region": region,

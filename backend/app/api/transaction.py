@@ -11,18 +11,14 @@ from app.services.audit_log_service import log_transaction
 from app.services.risk_engine import score_transaction
 from app.services.rate_limit import limiter
 from app.middlewares.rbac import require_roles
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
-from typing import List
+from typing import cast, Any
 
 router = APIRouter(prefix="/transaction", tags=["transaction"])
 
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
 
-
-@router.post("/", response_model=TransactionResponse)
+@router.post("/", response_model=None)
 @limiter.limit("10/minute; 200/hour")
 async def create_transaction(request: Request, data: TransactionRequest, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):
     # Fetch user
@@ -37,9 +33,11 @@ async def create_transaction(request: Request, data: TransactionRequest, db: Asy
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
     # Fetch behavior profile from MongoDB
-    profile = await mongo_db.behavior_profiles.find_one({"user_id": data.user_id}) or {}
+    profile = {}
+    if mongo_db is not None:
+        profile = await cast(Any, mongo_db).behavior_profiles.find_one({"user_id": data.user_id}) or {}
     # Score risk
-    risk_result = score_transaction(data.dict(), profile)
+    risk_result = score_transaction(data.model_dump(), profile)
     # Determine status
     if risk_result["level"] == "high":
         status = TransactionStatus.blocked.value
@@ -56,10 +54,12 @@ async def create_transaction(request: Request, data: TransactionRequest, db: Asy
     txn = Transaction(
         user_id=data.user_id,
         amount=data.amount,
-        target_account=data.target_account,
+        target_account=data.target_account or "checking",  # Default to checking if not provided
+        recipient=data.recipient,
         device_info=data.device_info,
         location=data.location,
-        intent=data.intent,
+        intent=data.intent or data.description,  # Use description as intent if intent not provided
+        description=data.description,
         risk_score=risk_result["risk_score"],
         status=status,
         created_at=datetime.utcnow()
@@ -68,16 +68,28 @@ async def create_transaction(request: Request, data: TransactionRequest, db: Asy
     await db.commit()
     await db.refresh(txn)
     # Log the transaction event
-    await log_transaction(db, user.id, txn.id, status, f"Amount: {data.amount}, Risk: {risk_result['risk_score']}")
+    await log_transaction(db, cast(int, user.id), cast(int, txn.id), status, f"Amount: {data.amount}, Risk: {risk_result['risk_score']}")
     # Placeholder: Hook for fraud visualization (e.g., heatmap)
     # TODO: Add event to heatmap/visualization system
-    return TransactionResponse(
-        status=status,
-        risk_score=risk_result["risk_score"],
-        risk_level=risk_result["level"],
-        reasons=risk_result["reasons"],
-        message=message
-    )
+    
+    # Return response in format expected by frontend
+    return {
+        "riskScore": risk_result["risk_score"],
+        "transaction": TransactionResponse(
+            id=cast(int, txn.id),
+            user_id=cast(int, txn.user_id),
+            amount=cast(float, txn.amount),
+            target_account=getattr(txn, 'target_account', None),
+            recipient=getattr(txn, 'recipient', None),
+            device_info=getattr(txn, 'device_info', None),
+            location=getattr(txn, 'location', None),
+            intent=getattr(txn, 'intent', None),
+            description=getattr(txn, 'description', None),
+            risk_score=risk_result["risk_score"],
+            status=status,
+            created_at=cast(datetime, txn.created_at)
+        )
+    }
 
 @router.get("/", response_model=TransactionListResponse)
 async def list_transactions(user_id: int, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):
@@ -86,7 +98,7 @@ async def list_transactions(user_id: int, db: AsyncSession = Depends(get_db), _r
         raise HTTPException(status_code=403, detail="Forbidden")
     result = await db.execute(select(Transaction).where(Transaction.user_id == user_id))
     transactions = result.scalars().all()
-    return TransactionListResponse(transactions=transactions)
+    return TransactionListResponse(transactions=list(transactions))
 
 @router.get("/{transaction_id}", response_model=TransactionResponse)
 async def get_transaction(transaction_id: int, db: AsyncSession = Depends(get_db), _risk=Depends(session_risk_dep), claims: dict = Depends(require_roles("user", "admin"))):

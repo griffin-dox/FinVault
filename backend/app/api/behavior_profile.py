@@ -4,8 +4,8 @@ from app.schemas.behavior_profile import BehaviorProfileCreate, BehaviorProfileO
 from app.middlewares.rbac import require_roles
 from app.database import mongo_db
 from app.services.rate_limit import limiter
-from typing import Any
-from datetime import datetime
+from typing import Any, Optional, cast
+from datetime import datetime, timezone
 
 router = APIRouter()
 
@@ -25,12 +25,24 @@ async def create_or_update_behavior_profile(
     # Optional: enforce token scope to be either 'access' or 'onboarding'
     scope = claims.get("scope", "access")
     if scope not in ("access", "onboarding"):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient token scope.")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token scope.")
     # Upsert profile in MongoDB
     doc = profile.dict()
     doc["user_id"] = user_id
     if not doc.get("created_at"):
-        doc["created_at"] = datetime.utcnow().isoformat()
-    await mongo_db.behavior_profiles.update_one({"user_id": user_id}, {"$set": doc}, upsert=True)
-    stored = await mongo_db.behavior_profiles.find_one({"user_id": user_id}, {"_id": 0})
-    return stored or profile
+        doc["created_at"] = datetime.now(timezone.utc).isoformat()
+    doc["updated_at"] = datetime.now(timezone.utc).isoformat()
+
+    db = cast(Optional[Any], mongo_db)
+    if db is None:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Database not initialized.")
+    collection = db["behavior_profiles"]
+    await collection.update_one(
+        {"user_id": user_id},
+        {"$set": doc, "$setOnInsert": {"created_at": doc["created_at"]}},
+        upsert=True
+    )
+    stored = await collection.find_one({"user_id": user_id}, {"_id": 0})
+    if not stored:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to persist behavior profile.")
+    return stored

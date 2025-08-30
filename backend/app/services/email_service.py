@@ -13,6 +13,10 @@ SMTP_PORT = 587
 
 
 def send_magic_link_email(to_email: str, magic_link: str):
+    if not EMAIL_SENDER or not EMAIL_PASSWORD:
+        print("[EmailService] Email configuration missing - EMAIL_SENDER or EMAIL_PASSWORD not set")
+        return False
+
     subject = "Your FinVault Magic Login Link"
     body = f"Click the link to verify your account and log in: {magic_link}"
     msg = MIMEText(body)

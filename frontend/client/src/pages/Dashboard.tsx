@@ -80,7 +80,7 @@ function Heatmap() {
   }, [user?.id, days]);
   // Compute bounds
   const latlngs = tiles.map(t => [t.tile_lat, t.tile_lon] as [number, number]).filter(([a,b]) => !isNaN(a) && !isNaN(b));
-  const bounds: [[number, number], [number, number]] = latlngs.length
+  const bounds: [[number, number], [number, number]] = latlngs.length > 0
     ? latlngs.reduce<[[number, number], [number, number]]>(
         (acc, cur) => [
           [Math.min(acc[0][0], cur[0]), Math.min(acc[0][1], cur[1])],
@@ -245,7 +245,7 @@ export default function Dashboard() {
     queryKey: ["/api/transaction", String(user?.id ?? "")],
     enabled: !!user?.id,
   });
-  const transactions = transactionsData.transactions;
+  const transactions = transactionsData.transactions || [];
 
   const recentTransactions = transactions.slice(0, 3);
 
@@ -269,19 +269,28 @@ export default function Dashboard() {
 
   const userCountry = user?.country || 'IN';
 
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
+  const formatDate = (date: any) => {
+    try {
+      if (!date) return 'N/A';
+      const parsedDate = new Date(date);
+      if (isNaN(parsedDate.getTime())) {
+        return 'Invalid date';
+      }
+      return parsedDate.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+    } catch {
+      return 'Invalid date';
+    }
   };
 
   // Use isVerified and lastLogin from user object if available
-  const isVerified = user?.isVerified ?? false;
+  const isVerified = typeof user?.isVerified === 'boolean' ? user.isVerified : false;
   const lastLogin = user?.lastLogin;
-  const riskLevel = user?.riskLevel || 'Low';
-  const location = user?.country || 'Unknown';
+  const riskLevel = typeof user?.riskLevel === 'string' ? user.riskLevel : 'Low';
+  const location = typeof user?.country === 'string' ? user.country : 'Unknown';
 
   return (
     <section className="py-8 min-h-screen bg-gray-50">
@@ -295,6 +304,38 @@ export default function Dashboard() {
           <Heatmap />
         ) : (
           <>
+            {/* Admin Access Banner - Only visible to admins */}
+            {user?.isAdmin && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.5, delay: 0.05 }}
+                className="mb-6"
+              >
+                <Card className="border-red-200 bg-gradient-to-r from-red-50 to-orange-50">
+                  <CardContent className="p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-3">
+                        <div className="p-2 bg-red-100 rounded-full">
+                          <Shield className="h-5 w-5 text-red-600" />
+                        </div>
+                        <div>
+                          <h3 className="font-semibold text-red-900">Administrator Access</h3>
+                          <p className="text-sm text-red-700">You have admin privileges. Access the admin panel to manage users and system settings.</p>
+                        </div>
+                      </div>
+                      <Link href="/admin">
+                        <Button className="bg-red-600 hover:bg-red-700 text-white">
+                          Open Admin Panel
+                          <ExternalLink className="ml-2 h-4 w-4" />
+                        </Button>
+                      </Link>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
             {/* Welcome Header */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -303,7 +344,7 @@ export default function Dashboard() {
               className="mb-8"
             >
               <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                Welcome back, {user?.name?.split(' ')[0]}!
+                Welcome back, {typeof user?.name === 'string' ? user.name.split(' ')?.[0] || 'User' : 'User'}!
               </h1>
               <p className="text-gray-600">Here's your account overview and recent activity.</p>
             </motion.div>
@@ -374,33 +415,33 @@ export default function Dashboard() {
                         <div className="space-y-4">
                           {recentTransactions.map((transaction: Transaction) => (
                             <div 
-                              key={transaction.id}
+                              key={transaction.id || `transaction-${Math.random()}`}
                               className="flex items-center justify-between p-4 hover:bg-gray-50 rounded-lg transition-colors"
                             >
                               <div className="flex items-center space-x-3">
                                 <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                                  transaction.type === 'deposit' ? 'bg-green-100' : 'bg-red-100'
+                                  (typeof transaction.type === 'string' ? transaction.type : 'withdrawal') === 'deposit' ? 'bg-green-100' : 'bg-red-100'
                                 }`}>
-                                  {transaction.type === 'deposit' ? (
+                                  {(typeof transaction.type === 'string' ? transaction.type : 'withdrawal') === 'deposit' ? (
                                     <ArrowDownLeft className="h-5 w-5 text-green-600" />
                                   ) : (
                                     <ArrowUpRight className="h-5 w-5 text-red-600" />
                                   )}
                                 </div>
                                 <div>
-                                  <p className="font-medium text-gray-900">{transaction.description}</p>
-                                  <p className="text-sm text-gray-600">{formatDate(transaction.createdAt)}</p>
+                                  <p className="font-medium text-gray-900">{typeof transaction.description === 'string' ? transaction.description : 'Transaction'}</p>
+                                  <p className="text-sm text-gray-600">{transaction.createdAt ? formatDate(transaction.createdAt) : 'Unknown date'}</p>
                                 </div>
                               </div>
                               <div className="text-right">
                                 <p className={`font-semibold ${
-                                  transaction.type === 'deposit' ? 'text-green-600' : 'text-red-600'
+                                  (typeof transaction.type === 'string' ? transaction.type : 'withdrawal') === 'deposit' ? 'text-green-600' : 'text-red-600'
                                 }`}>
-                                  {transaction.type === 'deposit' ? '+' : '-'}{formatAmountByCountry(transaction.amount, userCountry)}
+                                  {(typeof transaction.type === 'string' ? transaction.type : 'withdrawal') === 'deposit' ? '+' : '-'}{formatAmountByCountry(typeof transaction.amount === 'number' ? transaction.amount : 0, userCountry)}
                                 </p>
                                 <div className="flex items-center text-xs text-gray-500">
-                                  <div className={`w-2 h-2 rounded-full mr-1 ${getRiskDotColor(transaction.riskScore)}`}></div>
-                                  {getRiskLevel(transaction.riskScore)}
+                                  <div className={`w-2 h-2 rounded-full mr-1 ${getRiskDotColor(typeof transaction.riskScore === 'number' ? transaction.riskScore : 0)}`}></div>
+                                  {getRiskLevel(typeof transaction.riskScore === 'number' ? transaction.riskScore : 0)}
                                 </div>
                               </div>
                             </div>
@@ -458,10 +499,10 @@ export default function Dashboard() {
                           <Link href="/admin">
                             <Button
                               variant="outline"
-                              className="p-4 h-auto flex-col space-y-2 hover:border-primary hover:bg-primary/5 w-full"
+                              className="p-4 h-auto flex-col space-y-2 hover:border-red-500 hover:bg-red-50 border-red-200 bg-red-50/50 w-full"
                             >
-                              <Shield className="h-6 w-6 text-primary" />
-                              <span className="text-sm font-medium">Admin Panel</span>
+                              <Shield className="h-6 w-6 text-red-600" />
+                              <span className="text-sm font-medium text-red-700">Admin Panel</span>
                             </Button>
                           </Link>
                         )}

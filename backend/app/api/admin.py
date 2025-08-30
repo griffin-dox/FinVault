@@ -10,8 +10,9 @@ from sqlalchemy import func
 from app.database import AsyncSessionLocal, mongo_db, get_db
 from app.services.alert_service import trigger_alert
 from app.services.audit_log_service import log_admin_action
-from datetime import datetime, timedelta
-from typing import List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import List, Optional, cast
+from motor.motor_asyncio import AsyncIOMotorDatabase
 import json
 import pytz
 from app.models.audit_log import AuditLog
@@ -38,9 +39,8 @@ def to_ist(dt):
         dt = dt.replace(tzinfo=pytz.utc)
     return dt.astimezone(ist).isoformat()
 
-async def get_db():
-    async with AsyncSessionLocal() as session:
-        yield session
+# Use the get_db dependency from app.database instead of redefining it here
+from app.database import get_db
 
 def get_admin_claims(claims: dict = Depends(require_roles("admin"))):
     return claims
@@ -80,11 +80,11 @@ async def override_transaction(data: dict, db: AsyncSession = Depends(get_db), _
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
 
     if action == "approve":
-        txn.status = TransactionStatus.allowed
+        setattr(txn, "status", TransactionStatus.allowed.value)
     elif action == "block":
-        txn.status = TransactionStatus.blocked
+        setattr(txn, "status", TransactionStatus.blocked.value)
     elif action == "flag":
-        txn.status = TransactionStatus.challenged
+        setattr(txn, "status", TransactionStatus.challenged.value)
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid action.")
     await db.commit()
@@ -96,12 +96,13 @@ async def list_users(db: AsyncSession = Depends(get_db), _admin=Depends(get_admi
     users = result.scalars().all()
     return [
         UserDetailResponse(
-            id=u.id,
-            name=u.name,
-            email=u.email,
-            phone=u.phone,
-            verified_at=to_ist(u.verified_at) if u.verified_at else None,
-            role=u.role.value
+            id=getattr(u, "id", 0),
+            name=getattr(u, "name", ""),
+            email=getattr(u, "email", ""),
+            phone=getattr(u, "phone", None),
+            created_at=to_ist(getattr(u, "created_at", None)) if getattr(u, "created_at", None) is not None else None,
+            verified_at=to_ist(getattr(u, "verified_at", None)) if getattr(u, "verified_at", None) is not None else None,
+            role=getattr(u, "role", "")
         ) for u in users
     ]
 
@@ -111,17 +112,19 @@ async def get_user(user_id: int, db: AsyncSession = Depends(get_db), _admin=Depe
     user = result.scalar_one_or_none()
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+        role_value = str(user.role) if user.role is not None else ""
     return UserDetailResponse(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        phone=user.phone,
-        verified_at=to_ist(user.verified_at) if user.verified_at else None,
-        role=user.role.value
+        id=getattr(user, "id", 0),
+        name=getattr(user, "name", ""),
+        email=getattr(user, "email", ""),
+        phone=getattr(user, "phone", None),
+        created_at=to_ist(getattr(user, "created_at", None)) if getattr(user, "created_at", None) is not None else None,
+        verified_at=to_ist(getattr(user, "verified_at", None)) if getattr(user, "verified_at", None) is not None else None,
+    role=str(getattr(user, "role", ""))
     )
 
 @router.patch("/users/{user_id}", response_model=UserDetailResponse)
-async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
+async def update_user_patch(user_id: int, data: dict, db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -134,12 +137,13 @@ async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_d
         user.role = data["role"]
     await db.commit()
     return UserDetailResponse(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        phone=user.phone,
-        verified_at=to_ist(user.verified_at) if user.verified_at else None,
-        role=user.role.value
+        id=getattr(user, "id", 0),
+        name=getattr(user, "name", ""),
+        email=getattr(user, "email", ""),
+        phone=getattr(user, "phone", None),
+        created_at=to_ist(getattr(user, "created_at", None)) if getattr(user, "created_at", None) is not None else None,
+        verified_at=to_ist(getattr(user, "verified_at", None)) if getattr(user, "verified_at", None) is not None else None,
+        role=str(getattr(user, "role", ""))
     )
 
 @router.put("/users/{user_id}", response_model=UserDetailResponse)
@@ -156,12 +160,13 @@ async def put_update_user(user_id: int, data: dict, db: AsyncSession = Depends(g
         user.role = data["role"]
     await db.commit()
     return UserDetailResponse(
-        id=user.id,
-        name=user.name,
-        email=user.email,
-        phone=user.phone,
-        verified_at=to_ist(user.verified_at) if user.verified_at else None,
-        role=user.role.value
+        id=getattr(user, "id", 0),
+        name=getattr(user, "name", ""),
+        email=getattr(user, "email", ""),
+        phone=getattr(user, "phone", None),
+        created_at=to_ist(getattr(user, "created_at", None)) if getattr(user, "created_at", None) is not None else None,
+        verified_at=to_ist(getattr(user, "verified_at", None)) if getattr(user, "verified_at", None) is not None else None,
+        role=str(getattr(user, "role", ""))
     )
 
 @router.delete("/users/{user_id}", response_model=dict)
@@ -180,11 +185,11 @@ async def put_update_transaction(transaction_id: int, data: dict, db: AsyncSessi
     txn = result.scalar_one_or_none()
     if not txn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found.")
-    status = data.get("status")
-    if status:
-        txn.status = status
+    new_status = data.get("status")
+    if new_status:
+        txn.status = new_status
         await db.commit()
-        return {"message": f"Transaction status updated to {status}."}
+        return {"message": f"Transaction status updated to {new_status}."}
     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing status field.")
 
 @router.get("/risk-rules", response_model=List[dict])
@@ -207,50 +212,47 @@ async def get_user_telemetry(user_id: int, db: AsyncSession = Depends(get_db), _
         raise HTTPException(status_code=404, detail="User not found.")
     identifier = user.email or user.phone or user.name
 
-    # Fetch behavior profile (Mongo)
-    profile = await mongo_db.behavior_profiles.find_one({"user_id": user_id}, {"_id": 0}) or {}
-    # Recent geo events
-    geo_cursor = mongo_db.geo_events.find({"user_id": user_id}).sort("ts", -1).limit(10)
+    # Initialize defaults
+    profile = {}
     geo = []
-    async for doc in geo_cursor:
-        doc.pop("_id", None)
-        if doc.get("ts"):
-            try:
-                doc["ts"] = doc["ts"].isoformat()
-            except Exception:
-                pass
-        geo.append(doc)
-    # Step-up logs (stored by identifier)
-    stepup_cursor = mongo_db.stepup_logs.find({"user": identifier}).sort("timestamp", -1).limit(10)
     stepups = []
-    async for doc in stepup_cursor:
-        doc.pop("_id", None)
-        if doc.get("timestamp"):
-            try:
-                doc["timestamp"] = doc["timestamp"].isoformat()
-            except Exception:
-                pass
-        stepups.append(doc)
-    # Risk feedback (optional)
-    fb_cursor = mongo_db.risk_feedback.find({"identifier": identifier}).sort("timestamp", -1).limit(10)
     feedback = []
-    async for doc in fb_cursor:
-        doc.pop("_id", None)
-        if doc.get("timestamp"):
-            try:
-                doc["timestamp"] = doc["timestamp"].isoformat()
-            except Exception:
-                pass
-        feedback.append(doc)
 
-    return {
-        "user": {"id": user.id, "email": user.email, "phone": user.phone},
-        "profile": profile,
-        "geo_events": geo,
-        "stepup_logs": stepups,
-        "risk_feedback": feedback,
-    }
+    # Safely read from MongoDB if available
+    mdb = mongo_db if mongo_db is not None and isinstance(mongo_db, AsyncIOMotorDatabase) else None
+    if isinstance(mdb, AsyncIOMotorDatabase):
+        # Only run async code if Motor is valid
+        doc_profile = await mdb.get_collection("behavior_profiles").find_one({"user_id": user_id}, {"_id": 0}) # type: ignore # type: ignore
+        profile = doc_profile or {}
+        geo_cursor = mdb.get_collection("geo_events").find({"user_id": user_id}).sort("ts", -1).limit(10)
+        async for doc in geo_cursor: # type: ignore
+            doc.pop("_id", None)
+            if doc.get("ts"):
+                try:
+                    doc["ts"] = doc["ts"].isoformat()
+                except Exception:
+                    pass
+            geo.append(doc)
+        stepup_cursor = mdb.get_collection("stepup_logs").find({"user": identifier}).sort("timestamp", -1).limit(10)
+        async for doc in stepup_cursor: # type: ignore
+            doc.pop("_id", None)
+            if doc.get("timestamp"):
+                try:
+                    doc["timestamp"] = doc["timestamp"].isoformat()
+                except Exception:
+                    pass
+            stepups.append(doc)
+        fb_cursor = mdb.get_collection("risk_feedback").find({"identifier": identifier}).sort("timestamp", -1).limit(10)
+        async for doc in fb_cursor: # type: ignore
+            doc.pop("_id", None)
+            if doc.get("timestamp"):
+                try:
+                    doc["timestamp"] = doc["timestamp"].isoformat()
+                except Exception:
+                    pass
+            feedback.append(doc)
 
+    return {"profile": profile, "geo": geo, "stepups": stepups, "feedback": feedback}
 @router.get("/heatmap-data", response_model=dict)
 async def get_heatmap_data(db: AsyncSession = Depends(get_db), _admin=Depends(get_admin_claims)):
     # Aggregate transactions by location and risk
@@ -275,9 +277,9 @@ async def get_login_heatmap(db: AsyncSession = Depends(get_db), _admin=Depends(g
     logs = result.scalars().all()
     heatmap = {}
     for log in logs:
-        if log.action.startswith("login_"):
+        if str(log.action).startswith("login_"):
             loc = log.details or "unknown"
-            status = log.action.replace("login_", "")
+            status = str(log.action).replace("login_", "")
             key = (loc, status)
             if key not in heatmap:
                 heatmap[key] = 0
@@ -288,39 +290,174 @@ async def get_login_heatmap(db: AsyncSession = Depends(get_db), _admin=Depends(g
     ]
     return data
 
-@router.get("/user/heatmap", response_model=List[dict])
-async def get_user_heatmap(
+@router.get("/user-activity-heatmap", response_model=List[dict])
+async def get_user_activity_heatmap(
     db: AsyncSession = Depends(get_db),
-    claims: dict = Depends(require_roles("user", "admin"))
+    user_id: int = Query(..., description="User ID to get activity heatmap for"),
+    days: int = Query(30, ge=1, le=365),
+    claims: dict = Depends(get_admin_claims)
 ):
-    user_id = claims.get("user_id")
-    # Get login events
-    login_logs = await db.execute(
-        select(AuditLog).where(AuditLog.user_id == user_id, AuditLog.action.like("login_%"))
+    """
+    Get user activity heatmap showing transaction and login patterns.
+    Similar to Snapchat's location sharing patterns.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+
+    # Get user's transactions
+    txn_result = await db.execute(
+        select(Transaction).where(
+            Transaction.user_id == user_id,
+            Transaction.created_at >= since,
+            Transaction.location.isnot(None),
+            Transaction.location != "unknown"
+        )
     )
-    login_events = [
-        {
-            "location": log.details or "unknown",
-            "type": log.action,
-            "status": log.action.replace("login_", ""),
-            "timestamp": log.timestamp,
-        }
-        for log in login_logs.scalars().all()
-    ]
-    # Get transaction events
-    txns = await db.execute(
-        select(Transaction).where(Transaction.user_id == user_id)
+    transactions = txn_result.scalars().all()
+
+    # Get user's login events
+    login_result = await db.execute(
+        select(AuditLog).where(
+            AuditLog.user_id == user_id,
+            AuditLog.timestamp >= since,
+            AuditLog.action.like("login_%"),
+            AuditLog.details.isnot(None),
+            AuditLog.details != "unknown"
+        )
     )
-    txn_events = [
-        {
-            "location": txn.location or "unknown",
-            "type": f"transaction_{txn.status}",
+    login_events = login_result.scalars().all()
+
+    # Group by location
+    location_activity = {}
+
+    # Process transactions
+    for txn in transactions:
+        loc = txn.location.strip()
+        if not loc or loc == "unknown":
+            continue
+
+        try:
+            if "," in loc:
+                lat, lon = map(float, loc.split(",", 1))
+                grid_lat = round(lat, 2)
+                grid_lon = round(lon, 2)
+                grid_key = f"{grid_lat},{grid_lon}"
+            else:
+                grid_key = loc
+        except (ValueError, TypeError):
+            grid_key = loc
+
+        if grid_key not in location_activity:
+            location_activity[grid_key] = {
+                "coordinates": None,
+                "transactions": [],
+                "logins": [],
+                "total_amount": 0,
+                "last_activity": None
+            }
+
+        location_activity[grid_key]["transactions"].append({
+            "id": txn.id,
+            "amount": txn.amount,
             "status": txn.status,
-            "timestamp": txn.created_at,
+            "timestamp": txn.created_at.isoformat(),
+            "description": txn.description
+        })
+        location_activity[grid_key]["total_amount"] += txn.amount or 0
+
+        if location_activity[grid_key]["coordinates"] is None and "," in loc:
+            try:
+                lat, lon = map(float, loc.split(",", 1))
+                location_activity[grid_key]["coordinates"] = [lat, lon]
+            except (ValueError, TypeError):
+                pass
+
+        # Update last activity
+        if location_activity[grid_key]["last_activity"] is None or txn.created_at > location_activity[grid_key]["last_activity"]:
+            location_activity[grid_key]["last_activity"] = txn.created_at
+
+    # Process login events
+    for login in login_events:
+        loc = login.details.strip()
+        if not loc or loc == "unknown":
+            continue
+
+        try:
+            if "," in loc:
+                lat, lon = map(float, loc.split(",", 1))
+                grid_lat = round(lat, 2)
+                grid_lon = round(lon, 2)
+                grid_key = f"{grid_lat},{grid_lon}"
+            else:
+                grid_key = loc
+        except (ValueError, TypeError):
+            grid_key = loc
+
+        if grid_key not in location_activity:
+            location_activity[grid_key] = {
+                "coordinates": None,
+                "transactions": [],
+                "logins": [],
+                "total_amount": 0,
+                "last_activity": None
+            }
+
+        location_activity[grid_key]["logins"].append({
+            "action": login.action,
+            "timestamp": login.timestamp.isoformat(),
+            "status": login.action.replace("login_", "")
+        })
+
+        if location_activity[grid_key]["coordinates"] is None and "," in loc:
+            try:
+                lat, lon = map(float, loc.split(",", 1))
+                location_activity[grid_key]["coordinates"] = [lat, lon]
+            except (ValueError, TypeError):
+                pass
+
+        # Update last activity
+        if location_activity[grid_key]["last_activity"] is None or login.timestamp > location_activity[grid_key]["last_activity"]:
+            location_activity[grid_key]["last_activity"] = login.timestamp
+
+    # Convert to heatmap format
+    heatmap_data = []
+    for location, data in location_activity.items():
+        total_activities = len(data["transactions"]) + len(data["logins"])
+
+        if total_activities == 0:
+            continue
+
+        # Calculate activity intensity (more activities = higher intensity)
+        intensity = min(1.0, total_activities / 10)  # Scale to 0-1
+
+        # Determine activity type
+        if len(data["transactions"]) > len(data["logins"]):
+            activity_type = "transaction"
+        elif len(data["logins"]) > len(data["transactions"]):
+            activity_type = "login"
+        else:
+            activity_type = "mixed"
+
+        heatmap_point = {
+            "location": location,
+            "coordinates": data["coordinates"] or location,
+            "intensity": round(intensity, 3),
+            "total_activities": total_activities,
+            "transactions_count": len(data["transactions"]),
+            "logins_count": len(data["logins"]),
+            "total_amount": round(data["total_amount"], 2),
+            "activity_type": activity_type,
+            "last_activity": data["last_activity"].isoformat() if data["last_activity"] else None,
+            "activity_details": {
+                "recent_transactions": data["transactions"][-3:] if data["transactions"] else [],
+                "recent_logins": data["logins"][-3:] if data["logins"] else []
+            }
         }
-        for txn in txns.scalars().all()
-    ]
-    return login_events + txn_events
+        heatmap_data.append(heatmap_point)
+
+    # Sort by intensity and recency
+    heatmap_data.sort(key=lambda x: (x["intensity"], x["total_activities"]), reverse=True)
+
+    return heatmap_data
 
 @router.get("/behavioral-anomalies", response_model=List[dict])
 async def get_behavioral_anomalies():
@@ -340,16 +477,18 @@ async def get_transaction_trends(db: AsyncSession = Depends(get_db)):
     txns = result.scalars().all()
     buckets = {}
     for t in txns:
-        day = t.created_at.date().isoformat()
-        if day not in buckets:
-            buckets[day] = {"total": 0, "high": 0, "medium": 0, "low": 0}
-        buckets[day]["total"] += 1
-        if t.status == "blocked":
-            buckets[day]["high"] += 1
-        elif t.status == "challenged":
-            buckets[day]["medium"] += 1
-        else:
-            buckets[day]["low"] += 1
+        if t.created_at is not None:
+            day = t.created_at.date().isoformat()
+            if day not in buckets:
+                buckets[day] = {"total": 0, "high": 0, "medium": 0, "low": 0}
+            buckets[day]["total"] += 1
+            status_str = str(t.status)
+            if status_str == "blocked":
+                buckets[day]["high"] += 1
+            elif status_str == "challenged":
+                buckets[day]["medium"] += 1
+            else:
+                buckets[day]["low"] += 1
     trends = [
         {"date": day, **stats}
         for day, stats in sorted(buckets.items())
@@ -381,42 +520,157 @@ async def get_fraud_alerts(db: AsyncSession = Depends(get_db)):
             {"id": 1, "alertType": "manual_override", "description": "Admin approved transaction 456", "severity": "medium", "isResolved": False}
         ])
 
-@router.get("/admin/risk-heatmap", response_model=List[dict])
-async def get_risk_heatmap(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Transaction))
-    txns = result.scalars().all()
-    risk_map = {}
-    risk_map_counts = {}
-    risk_level_map = {"allowed": 0, "challenged": 1, "blocked": 2}
-    for t in txns:
-        loc = t.location or "unknown"
-        risk = risk_level_map.get(t.status, 0)
-        if loc not in risk_map:
-            risk_map[loc] = 0
-            risk_map_counts[loc] = 0
-        risk_map[loc] += risk
-        risk_map_counts[loc] += 1
-    data = [
-        {
-            "location": loc,
-            "avg_risk": risk_map[loc] / risk_map_counts[loc] if risk_map_counts[loc] else 0,
-            "count": risk_map_counts[loc],
-        }
-        for loc in risk_map
-    ]
-    # Inject dummy data if empty
-    if not data:
-        data = [
-            {"location": "28.6139,77.2090", "avg_risk": 0.2, "count": 12},  # Delhi
-            {"location": "19.0760,72.8777", "avg_risk": 1.1, "count": 8},   # Mumbai
-            {"location": "12.9716,77.5946", "avg_risk": 1.8, "count": 5},   # Bangalore
-            {"location": "22.5726,88.3639", "avg_risk": 0.7, "count": 7},   # Kolkata
-            {"location": "13.0827,80.2707", "avg_risk": 1.5, "count": 4},   # Chennai
-        ]
-    return data
+@router.get("/risk-heatmap", response_model=List[dict])
+async def get_risk_heatmap(
+    db: AsyncSession = Depends(get_db),
+    days: int = Query(30, ge=1, le=365),
+    min_transactions: int = Query(1, ge=1)
+):
+    """
+    Get risk-based heatmap data for admin analysis.
+    Shows high-risk transaction areas based on location clustering.
+    """
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
-@router.put("/api/users/{user_id}")
-async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_db)):
+    # Get transactions with location data
+    result = await db.execute(
+        select(Transaction).where(
+            Transaction.created_at >= since,
+            Transaction.location.isnot(None),
+            Transaction.location != "unknown"
+        )
+    )
+    txns = result.scalars().all()
+
+    # Group by location and calculate risk metrics
+    location_data = {}
+    risk_level_map = {
+        "allowed": 0.2,    # Low risk
+        "challenged": 0.6, # Medium risk
+        "blocked": 0.9,    # High risk
+        "pending": 0.4     # Medium-low risk
+    }
+
+    for txn in txns:
+        loc = txn.location.strip()
+        if not loc or loc == "unknown":
+            continue
+
+        # Parse location coordinates if available
+        try:
+            if "," in loc:
+                lat, lon = map(float, loc.split(",", 1))
+                # Create a grid cell (round to ~1km precision)
+                grid_lat = round(lat, 2)
+                grid_lon = round(lon, 2)
+                grid_key = f"{grid_lat},{grid_lon}"
+            else:
+                # Use location string as key if no coordinates
+                grid_key = loc
+        except (ValueError, TypeError):
+            grid_key = loc
+
+        if grid_key not in location_data:
+            location_data[grid_key] = {
+                "transactions": [],
+                "total_amount": 0,
+                "risk_scores": [],
+                "statuses": [],
+                "coordinates": None
+            }
+
+        location_data[grid_key]["transactions"].append(txn)
+        location_data[grid_key]["total_amount"] += txn.amount or 0
+        location_data[grid_key]["risk_scores"].append(txn.risk_score or 0)
+        location_data[grid_key]["statuses"].append(txn.status or "pending")
+
+        # Store coordinates if available
+        if "," in loc and location_data[grid_key]["coordinates"] is None:
+            try:
+                lat, lon = map(float, loc.split(",", 1))
+                location_data[grid_key]["coordinates"] = [lat, lon]
+            except (ValueError, TypeError):
+                pass
+
+    # Calculate aggregated metrics
+    heatmap_data = []
+    for location, data in location_data.items():
+        if len(data["transactions"]) < min_transactions:
+            continue
+
+        # Calculate average risk score
+        avg_risk = sum(data["risk_scores"]) / len(data["risk_scores"]) if data["risk_scores"] else 0
+
+        # Calculate risk level based on transaction statuses
+        status_weights = [risk_level_map.get(status, 0.3) for status in data["statuses"]]
+        status_risk = sum(status_weights) / len(status_weights) if status_weights else 0
+
+        # Combine risk factors
+        combined_risk = (avg_risk + status_risk) / 2
+
+        # Calculate transaction velocity (transactions per day)
+        days_active = max(1, (datetime.now(timezone.utc) - min(t.created_at for t in data["transactions"])).days)
+        velocity = len(data["transactions"]) / days_active
+
+        heatmap_point = {
+            "location": location,
+            "coordinates": data["coordinates"] or location,
+            "count": len(data["transactions"]),
+            "avg_risk": round(combined_risk, 3),
+            "total_amount": round(data["total_amount"], 2),
+            "velocity": round(velocity, 2),
+            "risk_level": "high" if combined_risk > 0.7 else "medium" if combined_risk > 0.4 else "low",
+            "status_breakdown": {
+                "allowed": data["statuses"].count("allowed"),
+                "challenged": data["statuses"].count("challenged"),
+                "blocked": data["statuses"].count("blocked"),
+                "pending": data["statuses"].count("pending")
+            }
+        }
+        heatmap_data.append(heatmap_point)
+
+    # Sort by risk level and count
+    heatmap_data.sort(key=lambda x: (x["avg_risk"], x["count"]), reverse=True)
+
+    # Inject dummy data if empty for demo purposes
+    if not heatmap_data:
+        heatmap_data = [
+            {
+                "location": "28.6139,77.2090",
+                "coordinates": [28.6139, 77.2090],
+                "count": 12,
+                "avg_risk": 0.2,
+                "total_amount": 15420.50,
+                "velocity": 0.4,
+                "risk_level": "low",
+                "status_breakdown": {"allowed": 10, "challenged": 1, "blocked": 0, "pending": 1}
+            },
+            {
+                "location": "19.0760,72.8777",
+                "coordinates": [19.0760, 72.8777],
+                "count": 8,
+                "avg_risk": 0.65,
+                "total_amount": 8750.25,
+                "velocity": 0.27,
+                "risk_level": "medium",
+                "status_breakdown": {"allowed": 5, "challenged": 2, "blocked": 1, "pending": 0}
+            },
+            {
+                "location": "12.9716,77.5946",
+                "coordinates": [12.9716, 77.5946],
+                "count": 5,
+                "avg_risk": 0.8,
+                "total_amount": 3210.75,
+                "velocity": 0.17,
+                "risk_level": "high",
+                "status_breakdown": {"allowed": 2, "challenged": 1, "blocked": 2, "pending": 0}
+            }
+        ]
+
+    return heatmap_data
+
+@router.put("/users/{user_id}")
+async def update_user_put(user_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -428,7 +682,7 @@ async def update_user(user_id: int, data: dict, db: AsyncSession = Depends(get_d
     await db.commit()
     return {"message": "User updated"}
 
-@router.put("/api/transactions/{transaction_id}")
+@router.put("/transactions/{transaction_id}")
 async def update_transaction(transaction_id: int, data: dict, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Transaction).where(Transaction.id == transaction_id))
     txn = result.scalar_one_or_none()
@@ -441,7 +695,7 @@ async def update_transaction(transaction_id: int, data: dict, db: AsyncSession =
     await db.commit()
     return {"message": "Transaction updated"}
 
-@router.get("/api/users", response_model=UserListResponse)
+@router.get("/users", response_model=UserListResponse)
 async def api_users(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User))
     users = result.scalars().all()
@@ -454,21 +708,21 @@ async def api_users(db: AsyncSession = Depends(get_db)):
         )
         row = audit_result.scalar_one_or_none()
         if row:
-            last_login = row.timestamp.isoformat() if row.timestamp else None
+            last_login = row.timestamp.isoformat() if row.timestamp is not None else None
         user_objs.append({
             "id": u.id,
             "name": u.name,
             "email": u.email,
             "phone": u.phone,
-            "verified_at": u.verified_at.isoformat() if u.verified_at else None,
-            "role": u.role,
+            "verified_at": u.verified_at.isoformat() if u.verified_at is not None else None,
+            "role": str(u.role),
             "riskLevel": "low",  # Placeholder, can be improved
             "lastLogin": last_login,
-            "isVerified": bool(u.verified and u.verified_at),
+            "isVerified": bool(u.verified) and u.verified_at is not None,
         })
     return UserListResponse(users=user_objs)
 
-@router.get("/api/transactions", response_model=TransactionListResponse)
+@router.get("/transactions", response_model=TransactionListResponse)
 async def api_transactions(db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(Transaction))
     txns = result.scalars().all()
@@ -477,14 +731,14 @@ async def api_transactions(db: AsyncSession = Depends(get_db)):
             "id": t.id,
             "user_id": t.user_id,
             "amount": t.amount,
-            "status": t.status,
-            "created_at": t.created_at.isoformat() if t.created_at else None,
+            "status": str(t.status),
+            "created_at": t.created_at.isoformat() if t.created_at is not None else None,
         }
         for t in txns
     ]
     return TransactionListResponse(transactions=txn_objs)
 
-@router.get("/api/fraud-alerts", response_model=AlertListResponse)
+@router.get("/fraud-alerts", response_model=AlertListResponse)
 async def api_fraud_alerts(db: AsyncSession = Depends(get_db)):
     try:
         from app.services.alert_service import get_alerts
@@ -504,20 +758,22 @@ async def api_fraud_alerts(db: AsyncSession = Depends(get_db)):
     except ImportError:
         return AlertListResponse(alerts=[])
 
-@router.get("/api/ping-db", response_model=SystemStatusResponse)
+@router.get("/ping-db", response_model=SystemStatusResponse)
 async def ping_db(db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import text
+    from datetime import datetime
     try:
-        await db.execute("SELECT 1")
-        return SystemStatusResponse(status="ok", message="Database connection successful")
+        await db.execute(text("SELECT 1"))
+        return SystemStatusResponse(status="ok", message="Database connection successful", timestamp=datetime.now(timezone.utc))
     except Exception as e:
-        from fastapi import Response
-        return SystemStatusResponse(status="error", message=f"Database connection failed: {e}")
+        return SystemStatusResponse(status="error", message=f"Database connection failed: {e}", timestamp=datetime.now(timezone.utc))
 
-@router.get("/api/ping-api", response_model=SystemStatusResponse)
+@router.get("/ping-api", response_model=SystemStatusResponse)
 async def ping_api():
-    return SystemStatusResponse(status="ok", message="API is running") 
+    from datetime import datetime
+    return SystemStatusResponse(status="ok", message="API is running", timestamp=datetime.now(timezone.utc)) 
 
-@router.post("/api/drift-scan", response_model=dict)
+@router.post("/drift-scan", response_model=dict)
 @limiter.limit("2/minute; 20/day")
 async def api_drift_scan(request: Request):
     result = await run_drift_scan()

@@ -1,9 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException
-from typing import Dict, Any
+from typing import Dict, Any, cast
 from app.database import get_db, mongo_db, redis_client
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.risk_engine import score_session
-from datetime import datetime
+from datetime import datetime, timezone
 from app.services.drift_monitor import validate_behavior_signature
 from jose import jwt, JWTError
 import os
@@ -56,10 +56,10 @@ async def ingest_telemetry(payload: Dict[str, Any], db: AsyncSession = Depends(g
         "user_id": str(user_id),
         "risk_level": result.get("level"),
         "risk_score": str(result.get("risk_score")),
-        "updated_at": datetime.utcnow().isoformat(),
+        "updated_at": datetime.now(timezone.utc).isoformat(),
     }
-    await redis_client.hset(key, mapping=state)
-    await redis_client.expire(key, 3600)
+    await cast(Any, redis_client).hset(key, mapping=state)
+    await cast(Any, redis_client).expire(key, 3600)
 
     # Persist sample (thin log) for audits
     mongo_db.session_telemetry.insert_one({
@@ -67,7 +67,7 @@ async def ingest_telemetry(payload: Dict[str, Any], db: AsyncSession = Depends(g
         "user_id": user_id,
         "telemetry": telemetry,
         "result": result,
-        "ts": datetime.utcnow(),
+        "ts": datetime.now(timezone.utc),
     })
 
     # If medium/high, signal client to step-up on next poll (client can poll a status endpoint)
@@ -78,5 +78,5 @@ async def session_status(session_id: str):
     if not redis_client:
         raise HTTPException(status_code=503, detail="Redis not configured")
     key = f"session:{session_id}"
-    data = await redis_client.hgetall(key)
+    data = await cast(Any, redis_client).hgetall(key)
     return {k.decode(): v.decode() for k, v in data.items()}

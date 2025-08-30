@@ -42,7 +42,7 @@ export default function TransferModal({ isOpen, onClose }: TransferModalProps) {
 
   const transferMutation = useMutation({
     mutationFn: async (data: TransferInput) => {
-      const response = await apiRequest("POST", "/api/transaction", {
+      const response = await apiRequest("POST", "/api/transaction/", {
         ...data,
         user_id: user?.id,
       });

@@ -23,9 +23,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     // Check for existing session on mount
     const savedUser = localStorage.getItem("securebank_user");
+    const savedToken = localStorage.getItem("securebank_token");
+    console.log("[AUTH INIT] savedUser:", savedUser ? "found" : "null");
+    console.log("[AUTH INIT] savedToken:", savedToken ? "found" : "null");
     if (savedUser) {
       try {
         const userData = JSON.parse(savedUser);
+        console.log("[AUTH INIT] parsed userData:", userData);
         setUser(userData);
       } catch (error) {
         console.error("Failed to parse saved user data:", error);
@@ -36,10 +40,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
   }, []);
 
   const login = (userData: User & { token?: string }) => {
+    console.log("[AUTH] Login called with userData:", userData);
+    console.log("[AUTH] Token in userData:", userData?.token);
     setUser(userData);
     localStorage.setItem("securebank_user", JSON.stringify(userData));
     if (userData && (userData as any).token) {
-      try { localStorage.setItem("securebank_token", (userData as any).token); } catch {}
+      try { 
+        localStorage.setItem("securebank_token", (userData as any).token);
+        console.log("[AUTH] Token stored in localStorage:", (userData as any).token.substring(0, 20) + "...");
+      } catch (e) {
+        console.error("[AUTH] Failed to store token:", e);
+      }
+    } else {
+      console.warn("[AUTH] No token found in userData");
     }
   };
 

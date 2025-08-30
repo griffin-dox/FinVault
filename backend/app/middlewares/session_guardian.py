@@ -1,5 +1,5 @@
 from fastapi import Request, HTTPException
-from typing import Optional
+from typing import Optional, cast, Any
 from app.database import redis_client
 
 
@@ -16,7 +16,7 @@ async def enforce_session_risk(request: Request):
     if not session_id:
         return
     key = f"session:{session_id}"
-    data = await redis_client.hgetall(key)
+    data = await cast(Any, redis_client).hgetall(key)
     if not data:
         return
     level = data.get(b"risk_level")

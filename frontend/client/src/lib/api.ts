@@ -154,10 +154,16 @@ export const apiUtils = {
 };
 
 export function formatAmountByCountry(amount: number, countryCode: string): string {
-  const country = COUNTRIES.find(c => c.code === countryCode);
-  if (!country) {
-    // fallback to INR
-    return amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+  try {
+    const numAmount = typeof amount === 'number' && !isNaN(amount) ? amount : 0;
+    const code = typeof countryCode === 'string' ? countryCode : 'IN';
+    const country = COUNTRIES.find(c => c.code === code);
+    if (!country) {
+      // fallback to INR
+      return numAmount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
+    }
+    return numAmount.toLocaleString(country.locale, { style: 'currency', currency: country.currency });
+  } catch {
+    return '$0.00';
   }
-  return amount.toLocaleString(country.locale, { style: 'currency', currency: country.currency });
 }

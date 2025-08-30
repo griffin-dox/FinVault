@@ -1,4 +1,5 @@
 from fastapi import Depends, HTTPException, status, Request
+from app.services.token_service import verify_magic_link_token
 from jose import jwt, JWTError
 from app.services.token_service import JWT_SECRET as TS_JWT_SECRET, JWT_ALGORITHM as TS_JWT_ALG
 
@@ -18,9 +19,11 @@ def get_current_claims(request: Request) -> dict:
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing or invalid token.")
     try:
-        payload = jwt.decode(token, TS_JWT_SECRET, algorithms=[TS_JWT_ALG])
+        payload = verify_magic_link_token(token)
+        if not payload or payload.get("scope") != "access":
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired token.")
         return payload
-    except JWTError:
+    except Exception:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token.")
 
 # Dependency to require specific roles; returns claims for downstream usage

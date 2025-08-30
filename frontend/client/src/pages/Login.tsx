@@ -35,6 +35,10 @@ export default function Login() {
   const [metrics, setMetrics] = useState<{ ip: string; geo: { latitude: number | null; longitude: number | null; accuracy: number | null; fallback: boolean }; device: { browser?: string } }>({ ip: "", geo: { latitude: null, longitude: null, accuracy: null, fallback: true }, device: {} });
   const deviceInfo = useDeviceInfo();
   const [metricsPreviewOpen, setMetricsPreviewOpen] = useState(false);
+  // Device telemetry readiness
+  const isKnown = (v?: string) => !!v && v !== "Unknown" && v.trim() !== "";
+  const deviceReady = isKnown(deviceInfo.browser) && isKnown(deviceInfo.os) && isKnown(deviceInfo.screen) && isKnown(deviceInfo.timezone);
+  const [telemetrySent, setTelemetrySent] = useState(false);
 
   // Risk and feedback state
   const [risk, setRisk] = useState<string | null>(null);
@@ -141,12 +145,50 @@ export default function Login() {
     // Re-run when device info becomes available
   }, [deviceInfo.browser, deviceInfo.os, deviceInfo.screen, deviceInfo.timezone, deviceInfo.language]);
 
+  // Pre-send device telemetry once when ready to establish baseline and avoid Unknown vs ...
+  useEffect(() => {
+    (async () => {
+      if (!deviceReady || telemetrySent) return;
+      try {
+        const res = await apiRequest("POST", "/api/telemetry/device", { device: {
+          browser: deviceInfo.browser,
+          os: deviceInfo.os,
+          screen: deviceInfo.screen,
+          timezone: deviceInfo.timezone,
+          language: deviceInfo.language,
+          userAgent: deviceInfo.userAgent,
+          screenWidth: deviceInfo.screenWidth,
+          screenHeight: deviceInfo.screenHeight,
+          viewportWidth: deviceInfo.viewportWidth,
+          viewportHeight: deviceInfo.viewportHeight,
+          pixelRatio: deviceInfo.pixelRatio,
+          deviceClass: deviceInfo.deviceClass,
+        }});
+        if (res.ok) setTelemetrySent(true);
+      } catch {}
+    })();
+  }, [deviceReady, telemetrySent, deviceInfo.browser, deviceInfo.os, deviceInfo.screen, deviceInfo.timezone]);
+
   // Step 4: Preview section (blurred)
   // ... will be rendered below form
 
   // Step 5: Submission
   const loginMutation = useMutation({
     mutationFn: async () => {
+      // Best-effort ensure telemetry is sent before login
+      if (deviceReady && !telemetrySent) {
+        try {
+          const t = await apiRequest("POST", "/api/telemetry/device", { device: {
+            browser: deviceInfo.browser,
+            os: deviceInfo.os,
+            screen: deviceInfo.screen,
+            timezone: deviceInfo.timezone,
+            language: deviceInfo.language,
+            userAgent: deviceInfo.userAgent,
+          }});
+          if (t.ok) setTelemetrySent(true);
+        } catch {}
+      }
       const payload = {
         identifier,
         behavioral_challenge: {
@@ -170,7 +212,7 @@ export default function Login() {
         console.log("[LOGIN onSuccess] risk:", riskLevel, "data:", data);
       }
       if (riskLevel === "low") {
-        login(data.user);
+        login({ ...data.user, token: data.token });
         // Fire-and-forget: send telemetry (device + server-resolved IP)
         try {
           fetch("/api/telemetry/device", {
@@ -470,9 +512,9 @@ export default function Login() {
                 <Button
                   type="submit"
                   className="w-full banking-button-primary"
-                  disabled={loginMutation.isPending}
+                  disabled={loginMutation.isPending || !deviceReady}
                 >
-                  {loginMutation.isPending ? "Signing you in..." : "Sign In"}
+                  {loginMutation.isPending ? "Signing you in..." : (deviceReady ? "Sign In" : "Preparing device…")}
                 </Button>
               </form>
               {/* Metrics Preview Section (blurred) */}

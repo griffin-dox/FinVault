@@ -1,5 +1,5 @@
-from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import List, Dict, Any, Optional
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING
 import os
@@ -20,7 +20,7 @@ def aggregate_geo_tiles_daily():
         return
     client = AsyncIOMotorClient(mongo_uri)
     db = client.finvault
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     since = now - timedelta(days=1)
 
     async def run():
@@ -44,7 +44,7 @@ def aggregate_geo_tiles_daily():
     asyncio.run(run())
 
 @celery.task(name="dispatch_alert")
-def dispatch_alert(event_type: str, details: str, channels: List[str] = None):
+def dispatch_alert(event_type: str, details: str, channels: Optional[List[str]] = None):
     from app.services.email_service import send_magic_link_email as send_email  # placeholder
     # TODO: replace with proper email alert function
     try:

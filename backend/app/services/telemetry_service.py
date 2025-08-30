@@ -1,6 +1,6 @@
 from __future__ import annotations
-from typing import Optional, Tuple, Dict, Any
-from datetime import datetime
+from typing import Optional, Tuple, Dict, Any, cast
+from datetime import datetime, timezone
 import ipaddress
 import os
 from pathlib import Path
@@ -54,9 +54,9 @@ def is_private(ip: str) -> bool:
 async def upsert_ip(ip: str) -> Optional[str]:
     if mongo_db is None or not ip:
         return None
-    coll = mongo_db.ip_addresses
-    now = datetime.utcnow()
-    doc = await coll.find_one({"ip": ip})
+    coll = getattr(mongo_db, "ip_addresses", None)
+    now = datetime.now(timezone.utc)
+    doc = await coll.find_one({"ip": ip}) if coll is not None else None
     if doc:
         # Attempt enrichment on existing doc if missing
         update_set: Dict[str, Any] = {"last_seen": now}
@@ -69,7 +69,7 @@ async def upsert_ip(ip: str) -> Optional[str]:
                     if redis_client is not None:
                         try:
                             key = f"geoip:{ip}"
-                            raw = await redis_client.get(key)
+                            raw = await cast(Any, redis_client).get(key) if redis_client is not None else None
                             if raw:
                                 import json
                                 cached = json.loads(raw)
@@ -98,12 +98,13 @@ async def upsert_ip(ip: str) -> Optional[str]:
                             try:
                                 import json
                                 cache_payload = {**asn_part, **filtered}
-                                await redis_client.setex(f"geoip:{ip}", int(os.getenv("GEOIP_CACHE_TTL_SEC", "86400")), json.dumps(cache_payload))
+                                await cast(Any, redis_client).setex(f"geoip:{ip}", int(os.getenv("GEOIP_CACHE_TTL_SEC", "86400")), json.dumps(cache_payload))
                             except Exception:
                                 pass
         except Exception:
             pass
-        await coll.update_one({"_id": doc["_id"]}, {"$set": update_set, "$inc": {"seen_count": 1}})
+        if coll is not None:
+            await coll.update_one({"_id": doc["_id"]}, {"$set": update_set, "$inc": {"seen_count": 1}})
         return str(doc["_id"])  # stringified ObjectId
     # New doc: enrich on insert
     enrich: Dict[str, Any] = {}
@@ -114,7 +115,7 @@ async def upsert_ip(ip: str) -> Optional[str]:
             cached = None
             if redis_client is not None:
                 try:
-                    raw = await redis_client.get(f"geoip:{ip}")
+                    raw = await cast(Any, redis_client).get(f"geoip:{ip}")
                     if raw:
                         import json
                         cached = json.loads(raw)
@@ -138,21 +139,24 @@ async def upsert_ip(ip: str) -> Optional[str]:
                     try:
                         import json
                         cache_payload = {**asn_part, **filtered}
-                        await redis_client.setex(f"geoip:{ip}", int(os.getenv("GEOIP_CACHE_TTL_SEC", "86400")), json.dumps(cache_payload))
+                        if redis_client is not None:
+                            await cast(Any, redis_client).setex(f"geoip:{ip}", int(os.getenv("GEOIP_CACHE_TTL_SEC", "86400")), json.dumps(cache_payload))
                     except Exception:
                         pass
     except Exception:
         pass
-    res = await coll.insert_one({
-        "ip": ip,
-        "is_private": priv,
-        "first_seen": now,
-        "last_seen": now,
-        "seen_count": 1,
-        "prefix": ip_prefix(ip),
-        **{k: v for k, v in enrich.items() if v is not None},
-    })
-    return str(res.inserted_id)
+    if coll is not None:
+        res = await coll.insert_one({
+            "ip": ip,
+            "is_private": priv,
+            "first_seen": now,
+            "last_seen": now,
+            "seen_count": 1,
+            "prefix": ip_prefix(ip),
+            **{k: v for k, v in enrich.items() if v is not None},
+        })
+        return str(res.inserted_id)
+    return None
 
 
 async def upsert_device(device: Dict[str, Any], user_id: Optional[int]) -> Tuple[Optional[str], Optional[str]]:
@@ -166,17 +170,19 @@ async def upsert_device(device: Dict[str, Any], user_id: Optional[int]) -> Tuple
         h = hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()
     except Exception:
         h = None
-    now = datetime.utcnow()
-    coll = mongo_db.devices
+    now = datetime.now(timezone.utc)
+    coll = getattr(mongo_db, "devices", None)
+    if coll is None:
+        return None, h
     doc = await coll.find_one({"device_hash": h}) if h else None
     if doc:
-        update = {"last_seen": now}
+        update: Dict[str, Any] = {"last_seen": now}
         if user_id and not doc.get("user_id"):
-            update["user_id"] = user_id
+            update["user_id"] = int(user_id)
         await coll.update_one({"_id": doc["_id"]}, {"$set": update, "$inc": {"seen_count": 1}})
         return str(doc["_id"]), h
     res = await coll.insert_one({
-        "user_id": user_id,
+        "user_id": int(user_id) if user_id is not None else None,
         "device_hash": h,
         "device": dev,
         "first_seen": now,
@@ -189,8 +195,8 @@ async def upsert_device(device: Dict[str, Any], user_id: Optional[int]) -> Tuple
 async def link_device_ip(device_id: Optional[str], ip_id: Optional[str]) -> None:
     if mongo_db is None or not device_id or not ip_id:
         return
-    now = datetime.utcnow()
-    coll = mongo_db.device_ip_events
+    now = datetime.now(timezone.utc)
+    coll = cast(Any, mongo_db).device_ip_events
     existing = await coll.find_one({"device_id": device_id, "ip_id": ip_id})
     if existing:
         await coll.update_one({"_id": existing["_id"]}, {"$set": {"last_seen": now}, "$inc": {"seen_count": 1}})
@@ -228,10 +234,10 @@ async def update_known_network_counter(user_id: int, ip: Optional[str]) -> None:
         pref = ip_prefix(ip)
         if not pref:
             return
-        day = datetime.utcnow().strftime('%Y-%m-%d')
-        coll = mongo_db.known_network_counters
+        day = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+        coll = cast(Any, mongo_db).known_network_counters
         doc = await coll.find_one({"user_id": user_id, "prefix": pref, "day": day})
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if doc:
             await coll.update_one({"_id": doc["_id"]}, {"$set": {"last_seen": now}})
         else:
@@ -260,15 +266,15 @@ async def promote_known_network_if_ready(user_id: int, ip: Optional[str]) -> Non
         threshold = int(os.getenv("KNOWN_NETWORK_PROMOTION_THRESHOLD", "3"))
         # Count distinct days in last 30 days
         from datetime import timedelta
-        today = datetime.utcnow().date()
+        today = datetime.now(timezone.utc).date()
         cutoff = today - timedelta(days=30)
         cutoff_str = cutoff.strftime('%Y-%m-%d')
-        coll = mongo_db.known_network_counters
+        coll = cast(Any, mongo_db).known_network_counters
         cur = coll.find({"user_id": user_id, "prefix": pref, "day": {"$gte": cutoff_str}}, {"day": 1})
         days = {doc.get("day") async for doc in cur}
         if len(days) >= threshold:
             # Promote into behavior_profiles known_networks set
-            await mongo_db.behavior_profiles.update_one({"user_id": user_id}, {"$addToSet": {"known_networks": pref}}, upsert=True)
+            await cast(Any, mongo_db).behavior_profiles.update_one({"user_id": user_id}, {"$addToSet": {"known_networks": pref}}, upsert=True)
     except Exception:
         pass
 
@@ -280,12 +286,12 @@ async def demote_stale_known_networks(user_id: int) -> None:
     try:
         decay_days = int(os.getenv("KNOWN_NETWORK_DECAY_DAYS", "90"))
         from datetime import timedelta
-        cutoff = datetime.utcnow() - timedelta(days=decay_days)
-        prof = await mongo_db.behavior_profiles.find_one({"user_id": user_id}) or {}
+        cutoff = datetime.now(timezone.utc) - timedelta(days=decay_days)
+        prof = await cast(Any, mongo_db).behavior_profiles.find_one({"user_id": user_id}) or {}
         prefixes = prof.get("known_networks") or []
         if not prefixes:
             return
-        coll = mongo_db.known_network_counters
+        coll = cast(Any, mongo_db).known_network_counters
         to_remove = []
         for pref in prefixes:
             doc = await coll.find_one({"user_id": user_id, "prefix": pref}, sort=[("last_seen", -1)])
@@ -293,6 +299,6 @@ async def demote_stale_known_networks(user_id: int) -> None:
             if not last_seen or last_seen < cutoff:
                 to_remove.append(pref)
         if to_remove:
-            await mongo_db.behavior_profiles.update_one({"user_id": user_id}, {"$pull": {"known_networks": {"$in": to_remove}}})
+            await cast(Any, mongo_db).behavior_profiles.update_one({"user_id": user_id}, {"$pull": {"known_networks": {"$in": to_remove}}})
     except Exception:
         pass
